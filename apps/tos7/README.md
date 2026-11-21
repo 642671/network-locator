@@ -252,3 +252,8 @@ git add VERSION config.ini DEBIAN/control backend/network_locator/__init__.py CH
 git commit -m "release: v1.1.0"
 git tag -a v1.1.0 -m "Network Locator v1.1.0"
 ```
+
+If a release asset had to be rebuilt and the developer platform still serves
+the cached previous bytes, publish the fixed assets under a new tag (for
+example `v1.1.0-r2`) and submit that download URL. The platform reads the
+version from `config.ini`, so the tag does not have to equal the version.

@@ -16,11 +16,18 @@ accepted.
   `/usr/local/network-locator/` package paths all use the new identity, so
   TOS and App Center treat it as a **new application** rather than an update
   of `lan-mac-finder`. Feature behavior is unchanged from `1.0.017`.
-- `network-locator` must still be verified as unused in the TerraMaster
-  developer platform before registration; no TDP API call has been made.
+- **Published.** The repository is public at
+  `https://github.com/642671/network-locator`; release `v1.1.0-r2` carries
+  the x86_64 and aarch64 Debs and SHA256 sidecars.
+- **TDP:** App `network-locator` is registered (platform `x86_64`) and version
+  `1.1.0` was submitted on 2026-11-21. It is currently in platform review
+  (`status=0`).
+- The `aarch64` Deb is available in the Release but cannot be submitted under
+  the same TDP App because an App is bound to one architecture and an App ID
+  can only be registered once. A separate identity would be needed for an
+  ARM listing; this is pending an owner decision.
 - The Windows portable build (`642671/lan-mac-finder-exe`) has **not** been
   migrated.
-- No remote repository has been created, and nothing has been committed.
 
 ## Identity
 

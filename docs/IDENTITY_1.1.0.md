@@ -63,8 +63,8 @@ Build environment: WSL2 Debian, Python 3.12.3, zlib 1.3, `dpkg-deb` 1.22.6.
 
 | Package | Size | SHA256 |
 | --- | ---: | --- |
-| `network-locator_1.1.0_x86_64.deb` | 52524 | `7d1fe4e220bdc4ea7d89a80e25f36a40cb66cb6aa4c84af8546bdaa7909192a7` |
-| `network-locator_1.1.0_aarch64.deb` | 52524 | `5eaab9f5d04f5beb19102c0a9f9234c4948282ffcd7fb5239262d6d1bcd12c22` |
+| `network-locator_1.1.0_x86_64.deb` | 52518 | `6b9cddb02b996d9b32b9a28ffd4aab5431e2a88a53616e72b1b7871c9693d3e2` |
+| `network-locator_1.1.0_aarch64.deb` | 52520 | `b76988790e92f6f18e0219ec04b55291ad42f21c3088c22174dae81d62476788` |
 
 - A second build in the same environment produced byte-identical archives.
 - `dpkg-deb --info`: `Package: network-locator`, `Version: 1.1.0`, correct
@@ -85,12 +85,27 @@ Build environment: WSL2 Debian, Python 3.12.3, zlib 1.3, `dpkg-deb` 1.22.6.
 
 Evidence: `dev-test/baseline/06-network-locator-1.1.0/`.
 
+## Publication status
+
+- App ID uniqueness was confirmed against the platform: `network-locator` was
+  not registered and `POST /v1/apps` succeeded.
+- Repository: `https://github.com/642671/network-locator` (public).
+- Release: `v1.1.0-r2`, with `network-locator_1.1.0_x86_64.deb` and
+  `network-locator_1.1.0_aarch64.deb` plus SHA256 sidecars.
+- TDP App entity: `f5d5fede-c204-45fa-8132-fb007cf55d23` (platform `x86_64`).
+- TDP Version entity: `87713f8a-6232-42a9-870b-d16b0346b517`, version `1.1.0`,
+  status `0` (in review) as of 2026-11-21.
+- The Release tag is `v1.1.0-r2` because the platform caches downloaded
+  package URLs; the version itself is read from `config.ini` and remains
+  `1.1.0`.
+
 ## Pending owner confirmation
 
-1. Confirm `network-locator` is unused on the TerraMaster developer platform
-   before registration (requires an authorized read-only `GET /v1/apps`).
-2. Confirm the repository will be `642671/network-locator`; `config.ini`
-   `official`/`help` already point there but the repository does not exist yet.
-3. Real-NAS acceptance: fresh install, service/socket check, UI open, stop and
+1. **aarch64 listing:** an App is bound to one architecture and an App ID can
+   be registered only once. Publishing ARM needs either a second App ID (for
+   example `network-locator-arm`) or leaving ARM as a Release-only asset.
+2. Real-NAS acceptance: fresh install, service/socket check, UI open, stop and
    re-enable, uninstall, and confirmation that an installed `lan-mac-finder`
    is not affected.
+3. The API token used for this submission was pasted into chat; it should be
+   deleted and reissued in the developer portal after the review is complete.
