@@ -2,96 +2,96 @@
 name = "网络定位"
 auth = "qishiyi"
 descript = "发现当前局域网设备，读取网卡、IP、MAC 状态，并按 MAC 后四位快速定位设备。"
-release_note = "1.2.1：采用绿色主题，界面拆分为“我的设备”和“设备总表”两个分区。设备总表支持勾选和行内复制，状态改为中文，筛选栏显示当前网段，并修复提示文字、刷新加载和应用图标。"
+release_note = "1.3.0：改为白色玻璃与蓝色按钮。去掉 MAC 输入行后的删除按钮，点击 IP 可跳转，点击 MAC 可复制，操作列与表头居中，窗口右下角增加拖拽放大标识。"
 important = "扫描只读取本机路由和邻居表，不会更改 NAS 或其他设备的网络配置。"
 
 [zh-hk]
 name = "網絡定位"
 auth = "qishiyi"
 descript = "搜尋目前區域網絡裝置，讀取網卡、IP、MAC 狀態，並按 MAC 尾四位定位裝置。"
-release_note = "1.2.1：採用綠色主題，介面拆分為「我的設備」和「裝置總表」兩個分區。裝置總表支援勾選和行內複製，狀態改為中文，篩選欄顯示目前網段，並修正提示文字、重新整理載入和應用圖示。"
+release_note = "1.3.0：改為白色玻璃與藍色按鈕。去掉 MAC 輸入行後的刪除按鈕，點擊 IP 可跳轉，點擊 MAC 可複製，操作列與表頭置中，視窗右下角增加拖曳放大標識。"
 important = "掃描只讀取本機路由和鄰居表，不會更改 NAS 或其他裝置的網絡設定。"
 
 [en-us]
 name = "Network Locator"
 auth = "qishiyi"
 descript = "Find devices on the current LAN and match the last four MAC characters with live interface and neighbor data."
-release_note = "1.2.1: green theme, separate My Devices and Device Table sections, a simplified device table with row selection and inline copy, Chinese status labels, network chips in the filter bar, horizontal tooltips, a refresh loading state, and a new app icon."
+release_note = "1.3.0: white glass and blue buttons. Remove the delete control on each MAC input row, click an IP to open it, click a MAC to copy it, center the action column, and add a resize grip at the lower-right corner."
 important = "The app only reads local routing and neighbor data. It never changes NAS or device network settings."
 
 [fr-fr]
 name = "Localisateur réseau"
 auth = "qishiyi"
 descript = "Trouvez les appareils du reseau local et filtrez-les par les quatre derniers caracteres de leur adresse MAC."
-release_note = "1.2.1 : thème vert, sections Mes appareils et Table des appareils séparées, tableau simplifié avec sélection et copie en ligne, statuts en chinois, puces de réseau, infobulles horizontales, état de chargement et nouvelle icône."
+release_note = "1.3.0 : verre blanc et boutons bleus. Suppression du bouton de suppression de chaque ligne MAC, clic sur une IP pour l ouvrir, clic sur une MAC pour la copier, colonne Actions centrée, et poignée de redimensionnement en bas à droite."
 important = "L'application lit uniquement le routage local et la table voisine, sans modifier la configuration reseau."
 
 [de-de]
 name = "Netzwerk-Locator"
 auth = "qishiyi"
 descript = "Findet Geraete im aktuellen LAN und filtert sie anhand der letzten vier MAC-Zeichen."
-release_note = "1.2.1: grünes Design, getrennte Bereiche Meine Geräte und Gerätetabelle, vereinfachte Tabelle mit Auswahl und Kopieren in der Zeile, chinesische Statuslabels, Netzwerk-Chips, horizontale Tooltips, Ladezustand und neues App-Symbol."
+release_note = "1.3.0: weißes Glas und blaue Schaltflächen. Die Löschtaste hinter jeder MAC-Eingabe entfällt, ein Klick auf die IP öffnet sie, ein Klick auf die MAC kopiert sie, die Aktionsspalte ist zentriert, und unten rechts gibt es einen Größengriff."
 important = "Die App liest nur lokale Routing- und Nachbardaten und aendert keine Netzwerkeinstellungen."
 
 [it-it]
 name = "Localizzatore di rete"
 auth = "qishiyi"
 descript = "Trova i dispositivi nella LAN corrente e filtra per gli ultimi quattro caratteri dell'indirizzo MAC."
-release_note = "1.2.1: tema verde, sezioni I miei dispositivi e Tabella dispositivi separate, tabella semplificata con selezione e copia in linea, stati in cinese, chip di rete, tooltip orizzontali, stato di caricamento e nuova icona."
+release_note = "1.3.0: vetro bianco e pulsanti blu. Rimosso il pulsante di eliminazione su ogni riga MAC, clic su un IP per aprirlo, clic su un MAC per copiarlo, colonna Azioni centrata e maniglia di ridimensionamento in basso a destra."
 important = "L'app legge solo routing e tabella dei vicini e non modifica la configurazione di rete."
 
 [es-es]
 name = "Localizador de red"
 auth = "qishiyi"
 descript = "Encuentra dispositivos en la LAN actual y filtra por los ultimos cuatro caracteres de su direccion MAC."
-release_note = "1.2.1: tema verde, secciones Mis dispositivos y Tabla de dispositivos separadas, tabla simplificada con selección y copia en línea, estados en chino, chips de red, información emergente horizontal, estado de carga y nuevo icono."
+release_note = "1.3.0: cristal blanco y botones azules. Se quita el botón de borrar de cada fila MAC, al pulsar una IP se abre, al pulsar una MAC se copia, la columna Acciones queda centrada y se añade el tirador de redimensionar abajo a la derecha."
 important = "La aplicacion solo lee el enrutamiento y la tabla de vecinos sin cambiar la configuracion de red."
 
 [hu-hu]
 name = "Hálózati lokalizáló"
 auth = "qishiyi"
 descript = "Megkeresi az aktuális LAN eszközeit, és a MAC-cím utolsó négy karaktere alapján szűri őket."
-release_note = "1.2.1: zöld téma, külön Saját eszközök és Eszköztábla szakasz, egyszerűsített táblázat kijelöléssel és soron belüli másolással, kínai állapotcímkék, hálózati chipek, vízszintes tippek, betöltési állapot és új ikon."
+release_note = "1.3.0: fehér üveg és kék gombok. Eltűnik a törlés gomb minden MAC sor mögül, az IP kattintásra megnyílik, a MAC kattintásra másolódik, a Műveletek oszlop középre kerül, jobbra lent átméretező jelölő van."
 important = "Az alkalmazás csak helyi útvonal- és szomszédadatokat olvas, hálózati beállítást nem módosít."
 
 [ja-jp]
 name = "ネットワークロケーター"
 auth = "qishiyi"
 descript = "現在の LAN 上のデバイスを検出し、MAC アドレスの末尾 4 文字で絞り込みます。"
-release_note = "1.2.1：グリーンテーマを採用し、「マイデバイス」と「デバイス表」を2つのセクションに分離しました。デバイス表は行選択と行内コピーに対応し、状態は中国語表示、フィルターバーにネットワークチップを追加し、ツールチップ、読み込み表示、アプリアイコンを改善しました。"
+release_note = "1.3.0：白いガラスと青いボタンに変更しました。MAC 入力行の削除ボタンをやめ、IP をクリックして開き、MAC をクリックしてコピーし、操作列と見出しを中央揃えにし、右下にサイズ変更ハンドルを追加しました。"
 important = "ローカルのルーティング情報と近隣テーブルのみを読み取り、ネットワーク設定は変更しません。"
 
 [ko-kr]
 name = "네트워크 로케이터"
 auth = "qishiyi"
 descript = "현재 LAN의 장치를 찾고 MAC 주소 마지막 네 문자로 빠르게 구분합니다."
-release_note = "1.2.1: 녹색 테마를 적용하고 '내 장치'와 '장치 표'를 두 섹션으로 분리했습니다. 장치 표는 행 선택과 행 내 복사를 지원하며, 상태는 중국어로 표시하고, 필터 바에 네트워크 칩을 추가했으며, 툴팁과 로딩 표시, 앱 아이콘을 개선했습니다."
+release_note = "1.3.0: 흰색 유리와 파란색 버튼으로 바꿨습니다. 각 MAC 입력 줄 뒤의 삭제 버튼을 없애고, IP를 클릭하면 열리며, MAC을 클릭하면 복사되고, 작업 열이 가운데 맞춰지며, 오른쪽 아래에 크기 조절 핸들을 추가했습니다."
 important = "앱은 로컬 라우팅과 이웃 테이블만 읽으며 네트워크 설정을 변경하지 않습니다."
 
 [pl-pl]
 name = "Lokalizator sieci"
 auth = "qishiyi"
 descript = "Znajduje urzadzenia w biezacej sieci LAN i filtruje je po czterech ostatnich znakach adresu MAC."
-release_note = "1.2.1: zielony motyw, osobne sekcje Moje urządzenia i Tabela urządzeń, uproszczona tabela z zaznaczaniem i kopiowaniem w wierszu, chińskie etykiety stanu, chipy sieci, poziome podpowiedzi, stan ładowania i nowa ikona."
+release_note = "1.3.0: białe szkło i niebieskie przyciski. Usunięto przycisk usuwania przy każdym wierszu MAC, kliknięcie IP otwiera adres, kliknięcie MAC kopiuje go, kolumna Operacje jest wyśrodkowana, a w prawym dolnym rogu jest uchwyt zmiany rozmiaru."
 important = "Aplikacja tylko odczytuje lokalne trasy i tabele sasiadow, bez zmiany konfiguracji sieci."
 
 [ru-ru]
 name = "Сетевой локатор"
 auth = "qishiyi"
 descript = "Находит устройства в текущей локальной сети и фильтрует их по последним четырём символам MAC."
-release_note = "1.2.1: зелёная тема, отдельные разделы Мои устройства и Таблица устройств, упрощённая таблица с выбором строк и копированием, китайские статусы, чипы сетей, горизонтальные подсказки, индикатор загрузки и новый значок."
+release_note = "1.3.0: белое стекло и синие кнопки. Убрана кнопка удаления у каждой строки MAC, щелчок по IP открывает адрес, щелчок по MAC копирует его, столбец Действия выровнен по центру, в правом нижнем углу есть маркер изменения размера."
 important = "Приложение только читает локальную маршрутизацию и таблицу соседей, не меняя настройки сети."
 
 [tr-tr]
 name = "Ağ Konum Bulucu"
 auth = "qishiyi"
 descript = "Geçerli LAN cihazlarını bulur ve MAC adresinin son dört karakterine göre filtreler."
-release_note = "1.2.1: yeşil tema, ayrı Cihazlarım ve Cihaz Tablosu bölümleri, satır seçimi ve satır içi kopyalama destekli sade tablo, Çince durum etiketleri, ağ çipleri, yatay ipuçları, yükleme durumu ve yeni uygulama simgesi."
+release_note = "1.3.0: beyaz cam ve mavi düğmeler. Her MAC satırındaki silme düğmesi kaldırıldı, IP ye tıklayınca açılır, MAC e tıklayınca kopyalanır, İşlem sütunu ortalanır ve sağ altta yeniden boyutlandırma tutamacı eklenir."
 important = "Uygulama yalnızca yerel yönlendirme ve komşu verilerini okur, ağ ayarlarını değiştirmez."
 
 [pt-pt]
 name = "Localizador de rede"
 auth = "qishiyi"
 descript = "Encontra dispositivos na LAN atual e filtra pelos quatro ultimos caracteres do endereco MAC."
-release_note = "1.2.1: tema verde, secções Meus dispositivos e Tabela de dispositivos separadas, tabela simplificada com seleção e cópia na linha, estados em chinês, chips de rede, dicas horizontais, estado de carregamento e novo ícone."
+release_note = "1.3.0: vidro branco e botões azuis. Removido o botão de exclusão de cada linha MAC, clicar no IP abre o endereço, clicar no MAC copia, a coluna Ações fica centrada e há um puxador de redimensionar no canto inferior direito."
 important = "A aplicacao apenas le o encaminhamento local e a tabela de vizinhos sem alterar a configuracao de rede."

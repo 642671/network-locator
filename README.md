@@ -27,7 +27,7 @@ accepted.
   and updates the app icon.
 - **Published.** The repository is public at
   `https://github.com/642671/network-locator`; releases `v1.1.0-r2` and
-  `v1.2.0` carry the x86_64 and aarch64 Debs and SHA256 sidecars. `v1.2.1` is
+  `v1.2.0` carry the x86_64 and aarch64 Debs and SHA256 sidecars. `v1.3.0` is
   the current build under test.
 - **TDP:** App `network-locator` is registered (platform `x86_64`) and version
   `1.1.0` was submitted on 2026-11-21. It is currently in platform review
@@ -49,7 +49,7 @@ accepted.
 | Socket | `/var/api/network-locator.sock` |
 | Runtime user | `network-locator` |
 | Package root | `/usr/local/network-locator/` |
-| Version | `1.2.0` (in development) |
+| Version | `1.3.0` |
 
 The old `lan-mac-finder` package is not upgraded by this build; installing it
 alongside is possible only because every path, user, socket, and unit name

@@ -3,7 +3,7 @@
 `network-locator` is a TOS 7 iframe Deb application for finding devices in the
 NAS's current physical LAN by the last four characters of their MAC address.
 
-Current version: `1.2.1`.
+Current version: `1.3.0`.
 
 Version 1.1.0 introduces the display name 网络定位 (Network Locator) and a new
 application identity: `network-locator` replaces the former `lan-mac-finder`
@@ -14,8 +14,8 @@ behavior is unchanged from `1.0.017`.
 ## Features
 
 - Save up to 8 MAC suffixes with a note in the "我的设备" panel; each entry
-  shows its current IP after a scan, copies the IP with one click, and opens
-  the device page from the adjacent link. The generic MAC search remains
+  shows its current IP after a scan. Click an IP to open it in a new tab,
+  and click a MAC in the device table to copy it. The generic MAC search remains
   unchanged for users without saved entries.
 - Detect physical IPv4 interfaces that have a default gateway.
 - Exclude common virtual interfaces such as Docker, veth, VM, Tailscale, TUN,
@@ -33,7 +33,7 @@ behavior is unchanged from `1.0.017`.
 - Match `AA-BB`, `AA:BB`, and `AABB` suffixes case-insensitively.
 - Start with one MAC input and add up to 8 search targets one at a time with
   “添加一个 MAC”, pinned to the same row as the MAC suffix label; duplicate
-  suffixes are rejected, each added row's remove control sits inside its input,
+  suffixes are rejected, empty extra rows collapse when they lose focus,
   and all rows keep a stable width as rows are added or removed.
 - Search every entered suffix in the same sweep and annotate rows with the
   matched targets. The match table gains a target column when more than one

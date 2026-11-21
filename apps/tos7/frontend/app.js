@@ -1714,24 +1714,6 @@ function createSuffixRow(value) {
   input.setAttribute("data-suffix-input", "");
   input.value = String(value || "");
   shell.appendChild(input);
-  var remove = document.createElement("button");
-  remove.type = "button";
-  remove.className = "remove-suffix-button";
-  remove.setAttribute("data-remove-suffix", "");
-  remove.setAttribute("aria-label", "移除这个 MAC");
-  remove.title = "移除这个 MAC";
-  var icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  icon.setAttribute("viewBox", "0 0 24 24");
-  icon.setAttribute("aria-hidden", "true");
-  icon.setAttribute("focusable", "false");
-  var first = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  first.setAttribute("d", "M6 6 18 18");
-  var second = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  second.setAttribute("d", "M18 6 6 18");
-  icon.appendChild(first);
-  icon.appendChild(second);
-  remove.appendChild(icon);
-  shell.appendChild(remove);
   row.appendChild(shell);
   return row;
 }
@@ -1874,10 +1856,6 @@ function updateControls() {
   var savedRefreshButton = byId("savedDevicesRefresh");
   if (savedRefreshButton) {
     savedRefreshButton.disabled = state.inventoryScanning;
-  }
-  var removeButtons = document.querySelectorAll("[data-remove-suffix]");
-  for (var removeIndex = 0; removeIndex < removeButtons.length; removeIndex += 1) {
-    removeButtons[removeIndex].disabled = busy;
   }
   setText(
     "suffixLimitHint",
@@ -2378,7 +2356,50 @@ function paintTableRows(preserveSelection) {
 
     var macCell = document.createElement("td");
     macCell.className = "mono-value mac-cell";
-    macCell.textContent = result.mac;
+    var macButton = document.createElement("button");
+    macButton.type = "button";
+    macButton.className = "mac-copy";
+    macButton.title = "复制 MAC";
+    macButton.setAttribute("aria-label", "复制 MAC " + result.mac);
+    var macText = document.createElement("span");
+    macText.className = "mac-copy-value";
+    macText.textContent = result.mac;
+    macButton.appendChild(macText);
+    var macIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    macIcon.setAttribute("viewBox", "0 0 24 24");
+    macIcon.setAttribute("aria-hidden", "true");
+    macIcon.setAttribute("focusable", "false");
+    macIcon.classList.add("mac-copy-icon");
+    var macRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    macRect.setAttribute("x", "8");
+    macRect.setAttribute("y", "8");
+    macRect.setAttribute("width", "12");
+    macRect.setAttribute("height", "12");
+    macRect.setAttribute("rx", "2");
+    var macPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    macPath.setAttribute("d", "M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3");
+    macIcon.appendChild(macRect);
+    macIcon.appendChild(macPath);
+    macButton.appendChild(macIcon);
+    var copiedHint = document.createElement("span");
+    copiedHint.className = "mac-copied-hint";
+    copiedHint.textContent = "已复制";
+    copiedHint.hidden = true;
+    macButton.appendChild(copiedHint);
+    macButton.addEventListener("click", function (event) {
+      event.stopPropagation();
+      writeClipboard(result.mac).then(function () {
+        copiedHint.hidden = false;
+        macButton.classList.add("is-copied");
+        window.setTimeout(function () {
+          copiedHint.hidden = true;
+          macButton.classList.remove("is-copied");
+        }, 1600);
+      }).catch(function () {
+        toast("复制失败，请重试。", true);
+      });
+    });
+    macCell.appendChild(macButton);
 
     var targetCell = document.createElement("td");
     targetCell.className = "target-column";
@@ -3850,27 +3871,20 @@ function savedDeviceIpCell(entry, matches) {
   var cell = createSavedElement("div", "saved-device-ips");
   if (matches.length) {
     matches.forEach(function (device) {
-      var copyButton = createSavedElement("button", "saved-ip-copy", device.ip);
-      copyButton.type = "button";
-      copyButton.title = "复制 IP";
-      copyButton.setAttribute("aria-label", "复制 IP " + device.ip);
-      copyButton.addEventListener("click", function (event) {
-        event.stopPropagation();
-        copySavedIp(device.ip);
-      });
-      cell.appendChild(copyButton);
       var url = deviceWebUrl(device.ip);
       if (url) {
-        var openLink = createSavedElement("a", "saved-ip-open", "↗");
-        openLink.href = url;
-        openLink.target = "_blank";
-        openLink.rel = "noopener noreferrer";
-        openLink.title = "打开 " + device.ip;
-        openLink.setAttribute("aria-label", "打开 " + device.ip);
-        openLink.addEventListener("click", function (event) {
+        var ipLink = createSavedElement("a", "saved-ip-open ip-link", device.ip);
+        ipLink.href = url;
+        ipLink.target = "_blank";
+        ipLink.rel = "noopener noreferrer";
+        ipLink.title = "在新标签页打开 " + url;
+        ipLink.setAttribute("aria-label", "打开 " + device.ip);
+        ipLink.addEventListener("click", function (event) {
           event.stopPropagation();
         });
-        cell.appendChild(openLink);
+        cell.appendChild(ipLink);
+      } else {
+        cell.appendChild(createSavedElement("span", "saved-ip-text", device.ip));
       }
     });
     if (matches.length > 1) {
@@ -3881,19 +3895,27 @@ function savedDeviceIpCell(entry, matches) {
     return cell;
   }
   if (entry.lastSeenIp) {
-    var staleButton = createSavedElement(
-      "button",
-      "saved-ip-stale",
-      entry.lastSeenIp + "（上次）"
-    );
-    staleButton.type = "button";
-    staleButton.title = "复制上次发现的 IP";
-    staleButton.setAttribute("aria-label", "复制上次发现的 IP " + entry.lastSeenIp);
-    staleButton.addEventListener("click", function (event) {
-      event.stopPropagation();
-      copySavedIp(entry.lastSeenIp);
-    });
-    cell.appendChild(staleButton);
+    var staleUrl = deviceWebUrl(entry.lastSeenIp);
+    if (staleUrl) {
+      var staleLink = createSavedElement(
+        "a",
+        "saved-ip-stale ip-link",
+        entry.lastSeenIp + "（上次）"
+      );
+      staleLink.href = staleUrl;
+      staleLink.target = "_blank";
+      staleLink.rel = "noopener noreferrer";
+      staleLink.title = "在新标签页打开 " + staleUrl;
+      staleLink.setAttribute("aria-label", "打开上次发现的 IP " + entry.lastSeenIp);
+      staleLink.addEventListener("click", function (event) {
+        event.stopPropagation();
+      });
+      cell.appendChild(staleLink);
+    } else {
+      cell.appendChild(
+        createSavedElement("span", "saved-ip-stale", entry.lastSeenIp + "（上次）")
+      );
+    }
     return cell;
   }
   cell.appendChild(createSavedElement("span", "saved-ip-empty", "未发现"));
@@ -4627,13 +4649,27 @@ function bindEvents() {
       }
       updateControls();
     });
-    suffixList.addEventListener("click", function (event) {
-      var removeButton = event.target && event.target.closest
-        ? event.target.closest("[data-remove-suffix]")
+    suffixList.addEventListener("focusout", function (event) {
+      var input = event.target && event.target.closest
+        ? event.target.closest("[data-suffix-input]")
         : null;
-      if (removeButton) {
-        removeSuffixRow(removeButton.closest("[data-suffix-row]"));
+      if (!input) {
+        return;
       }
+      var row = input.closest("[data-suffix-row]");
+      window.setTimeout(function () {
+        if (
+          !row ||
+          !row.parentNode ||
+          (document.activeElement && row.contains(document.activeElement))
+        ) {
+          return;
+        }
+        if (String(input.value || "").trim()) {
+          return;
+        }
+        removeSuffixRow(row);
+      }, 0);
     });
   }
 
