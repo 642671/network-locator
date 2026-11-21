@@ -16,12 +16,17 @@ accepted.
   `/usr/local/network-locator/` package paths all use the new identity, so
   TOS and App Center treat it as a **new application** rather than an update
   of `lan-mac-finder`. Feature behavior is unchanged from `1.0.017`.
+- **Phase 3 (in progress): saved devices.** Version `1.2.0` adds a
+  "我的设备" panel that stores up to 8 MAC suffixes with notes, resolves each
+  entry's current IP after every scan, copies an IP with one click, and keeps
+  the existing generic MAC search unchanged. Implemented and tested locally;
+  not committed or submitted while `1.1.0` is still in platform review.
 - **Published.** The repository is public at
   `https://github.com/642671/network-locator`; release `v1.1.0-r2` carries
   the x86_64 and aarch64 Debs and SHA256 sidecars.
 - **TDP:** App `network-locator` is registered (platform `x86_64`) and version
   `1.1.0` was submitted on 2026-11-21. It is currently in platform review
-  (`status=0`).
+  (`status=0`). Version `1.2.0` will be submitted after that review ends.
 - The `aarch64` Deb is available in the Release but cannot be submitted under
   the same TDP App because an App is bound to one architecture and an App ID
   can only be registered once. A separate identity would be needed for an
@@ -39,7 +44,7 @@ accepted.
 | Socket | `/var/api/network-locator.sock` |
 | Runtime user | `network-locator` |
 | Package root | `/usr/local/network-locator/` |
-| Version | `1.1.0` |
+| Version | `1.2.0` (in development) |
 
 The old `lan-mac-finder` package is not upgraded by this build; installing it
 alongside is possible only because every path, user, socket, and unit name

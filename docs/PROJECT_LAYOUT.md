@@ -40,6 +40,7 @@ network-locator/                       # proposed repository name
 |  |- PROJECT_LAYOUT.md
 |  |- IDENTITY_1.1.0.md
 |  |- MIGRATION_PHASE1.md
+|  |- REQUIREMENTS_SAVED_MACS.md
 |  `- screenshots/
 |- .github/workflows/tos7.yml
 `- README.md

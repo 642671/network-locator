@@ -305,6 +305,38 @@
         </div>
       </header>
 
+      <section id="savedDevicesPanel" class="saved-devices" aria-labelledby="savedDevicesHeading">
+        <div class="saved-devices-header">
+          <div class="saved-devices-title">
+            <h3 id="savedDevicesHeading">我的设备</h3>
+            <span id="savedDevicesCount" class="count-badge">0 / 8</span>
+          </div>
+          <div class="saved-devices-actions">
+            <button id="savedDevicesRefresh" class="text-button" type="button" data-tooltip="刷新我的设备当前 IP">刷新 IP</button>
+            <button id="addSavedDeviceButton" class="secondary-button" type="button">＋ 添加</button>
+            <button
+              id="savedDevicesToggle"
+              class="icon-button saved-devices-toggle"
+              type="button"
+              aria-expanded="true"
+              aria-controls="savedDevicesBody"
+              aria-label="收起我的设备"
+              data-tooltip="收起或展开我的设备">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="m6 9 6 6 6-6"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div id="savedDevicesBody" class="saved-devices-body">
+          <div id="savedDevicesEmpty" class="saved-devices-empty">
+            <span>保存常用 MAC，下次打开直接看到当前 IP。</span>
+            <button id="savedDevicesEmptyAdd" class="text-button" type="button">添加第一个</button>
+          </div>
+          <div id="savedDevicesList" class="saved-devices-list" role="list"></div>
+        </div>
+      </section>
+
       <section class="results-surface" aria-label="结果表格">
         <div id="tableToolbar" class="table-toolbar" hidden>
           <div class="table-filter">
@@ -398,6 +430,89 @@
   <div id="glassTooltip" class="glass-tooltip" role="tooltip" hidden>
     <span id="glassTooltipText"></span>
   </div>
+  <div id="savedDeviceDialog" class="modal-backdrop" hidden>
+    <div class="modal saved-device-modal" role="dialog" aria-modal="true" aria-labelledby="savedDialogTitle">
+      <div id="savedDeviceView">
+        <header class="modal-header">
+          <h3 id="savedDialogTitle">已保存的 MAC</h3>
+          <button id="savedViewClose" class="icon-button modal-close" type="button" aria-label="关闭">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M6 6 18 18"></path>
+              <path d="M18 6 6 18"></path>
+            </svg>
+          </button>
+        </header>
+        <dl class="saved-detail">
+          <dt>MAC 后四位</dt>
+          <dd id="savedViewMac" class="mono-value"></dd>
+          <dt>用途说明</dt>
+          <dd id="savedViewNote"></dd>
+          <dt>当前 IP</dt>
+          <dd id="savedViewIp" class="mono-value"></dd>
+          <dt>最后发现</dt>
+          <dd id="savedViewLastSeen"></dd>
+        </dl>
+        <footer class="modal-actions">
+          <button id="savedDeleteButton" class="secondary-button danger-text" type="button">删除</button>
+          <div class="modal-actions-right">
+            <button id="savedUseButton" class="secondary-button" type="button">用于搜索</button>
+            <button id="savedEditButton" class="primary-button" type="button">编辑</button>
+          </div>
+        </footer>
+      </div>
+
+      <div id="savedDeviceForm" hidden>
+        <header class="modal-header">
+          <h3 id="savedFormTitle">添加 MAC</h3>
+          <button id="savedFormClose" class="icon-button modal-close" type="button" aria-label="关闭">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M6 6 18 18"></path>
+              <path d="M18 6 6 18"></path>
+            </svg>
+          </button>
+        </header>
+        <div class="form-field">
+          <label for="savedMacInput">MAC 后四位</label>
+          <input
+            id="savedMacInput"
+            type="text"
+            placeholder="AA-BB / AA:BB / AABB"
+            autocomplete="off"
+            spellcheck="false"
+            autocapitalize="none"
+            aria-describedby="savedMacError savedMacHint">
+          <p id="savedMacError" class="field-error" hidden></p>
+          <p id="savedMacHint" class="field-hint">支持 AA-BB / AA:BB / AABB，重复的 MAC 不能保存。</p>
+        </div>
+        <div class="form-field">
+          <label for="savedNoteInput">用途说明</label>
+          <input
+            id="savedNoteInput"
+            type="text"
+            maxlength="100"
+            placeholder="例如：客厅电视、财务打印机"
+            autocomplete="off">
+          <span id="savedNoteCount" class="field-counter">0 / 100</span>
+        </div>
+        <footer class="modal-actions">
+          <button id="savedFormCancel" class="secondary-button" type="button">取消</button>
+          <button id="savedFormSave" class="primary-button" type="button">保存</button>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+  <div id="confirmDialog" class="modal-backdrop modal-backdrop-top" hidden>
+    <div class="modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage">
+      <h3 id="confirmTitle">确认</h3>
+      <p id="confirmMessage"></p>
+      <footer class="modal-actions">
+        <button id="confirmCancel" class="secondary-button" type="button">取消</button>
+        <button id="confirmOk" class="primary-button danger" type="button">确定</button>
+      </footer>
+    </div>
+  </div>
+
   <div id="toastRegion" class="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
   <script src="./csv.js?v=__APP_VERSION__" defer></script>

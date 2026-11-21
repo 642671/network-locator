@@ -108,6 +108,28 @@ class PackageContractTests(unittest.TestCase):
         self.assertEqual(full_bleed.attrib.get("width"), "64")
         self.assertEqual(full_bleed.attrib.get("height"), "64")
 
+    def test_saved_devices_contract(self) -> None:
+        html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+        styles = (ROOT / "frontend" / "styles.css").read_text(encoding="utf-8")
+        self.assertIn('id="savedDevicesPanel"', html)
+        self.assertIn('id="savedDevicesList"', html)
+        self.assertIn('id="savedDeviceDialog"', html)
+        self.assertIn('id="savedMacInput"', html)
+        self.assertIn('id="savedNoteInput"', html)
+        self.assertIn('id="confirmDialog"', html)
+        self.assertIn("networkLocator.savedMacs.v1", script)
+        self.assertIn("SAVED_MACS_LIMIT = 8", script)
+        self.assertIn("SAVED_NOTE_LIMIT = 100", script)
+        self.assertIn("saved-device-note", script)
+        self.assertIn("matchSavedMac", script)
+        self.assertIn("mergeSavedMacLastSeen", script)
+        self.assertIn("useSavedForSearch", script)
+        self.assertNotIn("innerHTML = entry.note", script)
+        self.assertIn(".saved-devices", styles)
+        self.assertIn(".saved-device-row", styles)
+        self.assertIn(".modal-backdrop", styles)
+
     def test_ui_contract(self) -> None:
         html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
         script = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")

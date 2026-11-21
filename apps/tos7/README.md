@@ -3,7 +3,7 @@
 `network-locator` is a TOS 7 iframe Deb application for finding devices in the
 NAS's current physical LAN by the last four characters of their MAC address.
 
-Current version: `1.1.0`.
+Current version: `1.2.0`.
 
 Version 1.1.0 introduces the display name 网络定位 (Network Locator) and a new
 application identity: `network-locator` replaces the former `lan-mac-finder`
@@ -13,6 +13,10 @@ behavior is unchanged from `1.0.017`.
 
 ## Features
 
+- Save up to 8 MAC suffixes with a note in the "我的设备" panel; each entry
+  shows its current IP after a scan, copies the IP with one click, and opens
+  the device page from the adjacent link. The generic MAC search remains
+  unchanged for users without saved entries.
 - Detect physical IPv4 interfaces that have a default gateway.
 - Exclude common virtual interfaces such as Docker, veth, VM, Tailscale, TUN,
   TAP, WireGuard, and ZeroTier.
@@ -205,7 +209,7 @@ Generated packages and SHA256 files are written to `dist/`.
 For a test NAS:
 
 ```bash
-sudo dpkg -i network-locator_1.1.0_x86_64.deb
+sudo dpkg -i network-locator_1.2.0_x86_64.deb
 systemctl status networklocator-system.service
 curl --unix-socket /var/api/network-locator.sock http://localhost/health
 ```
@@ -249,11 +253,11 @@ confirmation:
 ```powershell
 git status --short
 git add VERSION config.ini DEBIAN/control backend/network_locator/__init__.py CHANGELOG.md README.md network-locator.lang
-git commit -m "release: v1.1.0"
-git tag -a v1.1.0 -m "Network Locator v1.1.0"
+git commit -m "release: v1.2.0"
+git tag -a v1.2.0 -m "Network Locator v1.2.0"
 ```
 
 If a release asset had to be rebuilt and the developer platform still serves
 the cached previous bytes, publish the fixed assets under a new tag (for
-example `v1.1.0-r2`) and submit that download URL. The platform reads the
+example `v1.2.0-r2`) and submit that download URL. The platform reads the
 version from `config.ini`, so the tag does not have to equal the version.

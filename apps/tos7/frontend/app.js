@@ -20,6 +20,9 @@ var MIN_NETWORK_PANE_HEIGHT = 200;
 var CONTINUOUS_RESTART_DELAY_MS = 1100;
 var MAX_NO_MATCH_ROUNDS = 10;
 var MAX_SUFFIX_INPUTS = 8;
+var SAVED_MACS_KEY = "networkLocator.savedMacs.v1";
+var SAVED_MACS_LIMIT = 8;
+var SAVED_NOTE_LIMIT = 100;
 var SERVICE_RETRY_DELAY_MS = 2200;
 var REQUEST_TIMEOUT_MS = 12000;
 var INVENTORY_REQUEST_TIMEOUT_MS = 45000;
@@ -95,7 +98,9 @@ var state = {
   lastRequestErrorKind: "",
   totalHosts: 0,
   probedHosts: 0,
-  jobId: ""
+  jobId: "",
+  savedMacs: [],
+  savedPanelCollapsed: false
 };
 
 function byId(id) {
@@ -149,6 +154,202 @@ function removeStoredValue(key) {
   } catch (error) {
     return;
   }
+}
+
+var savedWriteTimer = null;
+var savedStorageWarned = false;
+
+function normalizeDeviceMac(value) {
+  return String(value || "").replace(/[-:]/g, "").toUpperCase();
+}
+
+function deviceMacSuffix(value) {
+  var mac = normalizeDeviceMac(value);
+  return mac.length >= 4 ? mac.slice(-4) : "";
+}
+
+function createSavedMacId() {
+  var cryptoObject = window.crypto;
+  if (cryptoObject && typeof cryptoObject.randomUUID === "function") {
+    return cryptoObject.randomUUID();
+  }
+  return "m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function sanitizeSavedMac(raw) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  var display = String(raw.display || "").trim();
+  var normalized = normalizeSuffix(display);
+  if (!normalized) {
+    return null;
+  }
+  var note = String(raw.note || "").trim().slice(0, SAVED_NOTE_LIMIT);
+  var lastSeenAt = Number(raw.lastSeenAt);
+  var createdAt = Number(raw.createdAt);
+  var updatedAt = Number(raw.updatedAt);
+  return {
+    id: typeof raw.id === "string" && raw.id ? raw.id : createSavedMacId(),
+    display: display,
+    normalized: normalized,
+    note: note,
+    lastSeenIp: typeof raw.lastSeenIp === "string" ? raw.lastSeenIp : "",
+    lastSeenFullMac: normalizeDeviceMac(raw.lastSeenFullMac),
+    lastSeenInterface: typeof raw.lastSeenInterface === "string"
+      ? raw.lastSeenInterface
+      : "",
+    lastSeenRange: typeof raw.lastSeenRange === "string" ? raw.lastSeenRange : "",
+    lastSeenAt: Number.isFinite(lastSeenAt) && lastSeenAt > 0 ? lastSeenAt : 0,
+    createdAt: Number.isFinite(createdAt) && createdAt > 0 ? createdAt : Date.now(),
+    updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : Date.now()
+  };
+}
+
+function readSavedMacs() {
+  var stored = readStoredJson(SAVED_MACS_KEY);
+  var rawItems = stored && Array.isArray(stored.items) ? stored.items : [];
+  var items = [];
+  var seenSuffixes = {};
+  var seenIds = {};
+  rawItems.some(function (value) {
+    var entry = sanitizeSavedMac(value);
+    if (!entry || seenSuffixes[entry.normalized]) {
+      return false;
+    }
+    while (seenIds[entry.id]) {
+      entry.id = createSavedMacId();
+    }
+    seenIds[entry.id] = true;
+    seenSuffixes[entry.normalized] = true;
+    items.push(entry);
+    return items.length >= SAVED_MACS_LIMIT;
+  });
+  return items;
+}
+
+function persistSavedMacs(items) {
+  state.savedMacs = Array.isArray(items) ? items : [];
+  try {
+    window.localStorage.setItem(
+      SAVED_MACS_KEY,
+      JSON.stringify({
+        version: 1,
+        updatedAt: Date.now(),
+        items: state.savedMacs
+      })
+    );
+    return true;
+  } catch (error) {
+    if (!savedStorageWarned) {
+      savedStorageWarned = true;
+      toast("浏览器未允许本地存储，本次保存不会保留。", true);
+    }
+    return false;
+  }
+}
+
+function scheduleSavedMacsWrite() {
+  if (savedWriteTimer) {
+    window.clearTimeout(savedWriteTimer);
+  }
+  savedWriteTimer = window.setTimeout(function () {
+    savedWriteTimer = null;
+    persistSavedMacs(state.savedMacs);
+  }, 250);
+}
+
+function flushSavedMacsWrite() {
+  if (!savedWriteTimer) {
+    return;
+  }
+  window.clearTimeout(savedWriteTimer);
+  savedWriteTimer = null;
+  persistSavedMacs(state.savedMacs);
+}
+
+function matchSavedMac(entry, devices) {
+  var suffix = entry && entry.normalized ? entry.normalized : "";
+  if (!suffix) {
+    return [];
+  }
+  var matches = (Array.isArray(devices) ? devices : []).filter(function (device) {
+    return deviceMacSuffix(device.mac) === suffix;
+  });
+  if (matches.length > 1 && entry.lastSeenFullMac) {
+    matches.sort(function (left, right) {
+      var leftExact = normalizeDeviceMac(left.mac) === entry.lastSeenFullMac ? 0 : 1;
+      var rightExact = normalizeDeviceMac(right.mac) === entry.lastSeenFullMac ? 0 : 1;
+      return leftExact - rightExact;
+    });
+  }
+  return matches;
+}
+
+function savedMacStatus(matches) {
+  var list = Array.isArray(matches) ? matches : [];
+  if (!list.length) {
+    return { label: "离线", className: "is-offline", online: false };
+  }
+  var states = list.map(function (device) {
+    return String(device.state || "").toUpperCase();
+  });
+  var hasOnline = states.some(function (value) {
+    return value === "REACHABLE" || value === "LOCAL";
+  });
+  if (hasOnline) {
+    return { label: "在线", className: "is-online", online: true };
+  }
+  var hasRecent = states.some(function (value) {
+    return value === "DELAY" || value === "STALE" || value === "PROBE";
+  });
+  if (hasRecent) {
+    return { label: "近期", className: "is-recent", online: false };
+  }
+  return { label: "未知", className: "is-offline", online: false };
+}
+
+function formatSavedLastSeen(entry, matches) {
+  if (entry && entry.lastSeenAt) {
+    return formatTime(entry.lastSeenAt) + (matches.length ? "" : "（上次）");
+  }
+  if (Array.isArray(matches) && matches.length) {
+    return "刚刚";
+  }
+  return "从未发现";
+}
+
+function mergeSavedMacLastSeen(devices) {
+  var changed = false;
+  var now = Date.now();
+  state.savedMacs.forEach(function (entry) {
+    var matches = matchSavedMac(entry, devices);
+    if (!matches.length) {
+      return;
+    }
+    var primary = matches[0];
+    var ip = String(primary.ip || "");
+    var fullMac = normalizeDeviceMac(primary.mac);
+    var interfaceName = String(primary.interface || "");
+    var scanRange = String(primary.scan_range || "");
+    if (
+      entry.lastSeenIp !== ip ||
+      entry.lastSeenFullMac !== fullMac ||
+      entry.lastSeenInterface !== interfaceName ||
+      entry.lastSeenRange !== scanRange
+    ) {
+      entry.lastSeenIp = ip;
+      entry.lastSeenFullMac = fullMac;
+      entry.lastSeenInterface = interfaceName;
+      entry.lastSeenRange = scanRange;
+      changed = true;
+    }
+    entry.lastSeenAt = now;
+  });
+  if (state.savedMacs.length) {
+    scheduleSavedMacsWrite();
+  }
+  return changed;
 }
 
 function networkKey(network) {
@@ -1660,6 +1861,18 @@ function updateControls() {
   if (addButton) {
     addButton.disabled = busy || rows.length >= MAX_SUFFIX_INPUTS;
   }
+  var savedAddButton = byId("addSavedDeviceButton");
+  if (savedAddButton) {
+    savedAddButton.disabled = state.savedMacs.length >= SAVED_MACS_LIMIT;
+  }
+  var savedEmptyAddButton = byId("savedDevicesEmptyAdd");
+  if (savedEmptyAddButton) {
+    savedEmptyAddButton.disabled = state.savedMacs.length >= SAVED_MACS_LIMIT;
+  }
+  var savedRefreshButton = byId("savedDevicesRefresh");
+  if (savedRefreshButton) {
+    savedRefreshButton.disabled = state.inventoryScanning;
+  }
   var removeButtons = document.querySelectorAll("[data-remove-suffix]");
   for (var removeIndex = 0; removeIndex < removeButtons.length; removeIndex += 1) {
     removeButtons[removeIndex].disabled = busy;
@@ -2194,6 +2407,7 @@ function renderResults(results, force) {
 
 function renderDevices(devices, force) {
   renderTable(devices, "devices", force);
+  renderSavedDevices();
 }
 
 function renderEmptyForStatus(status) {
@@ -2701,6 +2915,7 @@ async function refreshDevices(showError) {
       { timeoutMs: INVENTORY_REQUEST_TIMEOUT_MS }
     );
     state.devices = Array.isArray(data.devices) ? data.devices : [];
+    mergeSavedMacLastSeen(state.devices);
     persistDeviceCache(networkIds);
     if (Array.isArray(data.warnings) && data.warnings.length) {
       state.warnings = Array.from(new Set(state.warnings.concat(data.warnings)));
@@ -3450,6 +3665,705 @@ async function checkBackend(quiet) {
   }
 }
 
+var savedDialogMode = "";
+var savedDialogId = "";
+var savedDialogReturnFocus = null;
+var savedDialogOriginal = { display: "", note: "" };
+var confirmResolver = null;
+
+function createSavedElement(tag, className, text) {
+  var element = document.createElement(tag);
+  if (className) {
+    element.className = className;
+  }
+  if (text !== undefined) {
+    element.textContent = text;
+  }
+  return element;
+}
+
+function savedDeviceLabel(entry) {
+  return entry && entry.note ? entry.note : entry.display;
+}
+
+function copySavedIp(ip) {
+  writeClipboard(ip).then(function () {
+    toast("已复制 " + ip, false);
+  }).catch(function () {
+    toast("复制失败，请重试。", true);
+  });
+}
+
+function savedDeviceIpCell(entry, matches) {
+  var cell = createSavedElement("div", "saved-device-ips");
+  if (matches.length) {
+    matches.forEach(function (device) {
+      var copyButton = createSavedElement("button", "saved-ip-copy", device.ip);
+      copyButton.type = "button";
+      copyButton.title = "复制 IP";
+      copyButton.setAttribute("aria-label", "复制 IP " + device.ip);
+      copyButton.addEventListener("click", function (event) {
+        event.stopPropagation();
+        copySavedIp(device.ip);
+      });
+      cell.appendChild(copyButton);
+      var url = deviceWebUrl(device.ip);
+      if (url) {
+        var openLink = createSavedElement("a", "saved-ip-open", "↗");
+        openLink.href = url;
+        openLink.target = "_blank";
+        openLink.rel = "noopener noreferrer";
+        openLink.title = "打开 " + device.ip;
+        openLink.setAttribute("aria-label", "打开 " + device.ip);
+        openLink.addEventListener("click", function (event) {
+          event.stopPropagation();
+        });
+        cell.appendChild(openLink);
+      }
+    });
+    if (matches.length > 1) {
+      var count = createSavedElement("span", "saved-ip-count", matches.length + " 台");
+      count.title = "同一个 4 位后缀命中多台设备，请核对完整 MAC。";
+      cell.appendChild(count);
+    }
+    return cell;
+  }
+  if (entry.lastSeenIp) {
+    var staleButton = createSavedElement(
+      "button",
+      "saved-ip-stale",
+      entry.lastSeenIp + "（上次）"
+    );
+    staleButton.type = "button";
+    staleButton.title = "复制上次发现的 IP";
+    staleButton.setAttribute("aria-label", "复制上次发现的 IP " + entry.lastSeenIp);
+    staleButton.addEventListener("click", function (event) {
+      event.stopPropagation();
+      copySavedIp(entry.lastSeenIp);
+    });
+    cell.appendChild(staleButton);
+    return cell;
+  }
+  cell.appendChild(createSavedElement("span", "saved-ip-empty", "未发现"));
+  return cell;
+}
+
+function createSavedDeviceRow(entry) {
+  var matches = matchSavedMac(entry, state.devices);
+  var status = savedMacStatus(matches);
+  var row = createSavedElement("div", "saved-device-row");
+  row.setAttribute("role", "listitem");
+  row.setAttribute("data-saved-id", entry.id);
+
+  var main = createSavedElement("div", "saved-device-main");
+  main.tabIndex = 0;
+  main.setAttribute("role", "button");
+  main.setAttribute(
+    "aria-label",
+    "查看 " + savedDeviceLabel(entry) + " 的详情"
+  );
+  main.addEventListener("click", function () {
+    openSavedDeviceDialog("view", entry.id);
+  });
+  main.addEventListener("keydown", function (event) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openSavedDeviceDialog("view", entry.id);
+    }
+  });
+
+  var note = createSavedElement(
+    "span",
+    "saved-device-note" + (entry.note ? "" : " is-empty"),
+    entry.note || "未填写用途"
+  );
+  var mac = createSavedElement(
+    "span",
+    "saved-device-mac mono-value",
+    entry.display
+  );
+  main.appendChild(note);
+  main.appendChild(mac);
+
+  var statusBadge = createSavedElement(
+    "span",
+    "saved-device-status " + status.className,
+    status.label
+  );
+  var lastSeen = createSavedElement(
+    "span",
+    "saved-device-last",
+    formatSavedLastSeen(entry, matches)
+  );
+
+  var editButton = createSavedElement("button", "icon-button saved-device-edit");
+  editButton.type = "button";
+  editButton.title = "编辑";
+  editButton.setAttribute("aria-label", "编辑 " + savedDeviceLabel(entry));
+  editButton.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+    '<path d="M4 20h4l10-10-4-4L4 16v4Z"></path>' +
+    '<path d="m13 6 4 4"></path></svg>';
+  editButton.addEventListener("click", function (event) {
+    event.stopPropagation();
+    openSavedDeviceDialog("edit", entry.id);
+  });
+
+  row.appendChild(main);
+  row.appendChild(savedDeviceIpCell(entry, matches));
+  row.appendChild(statusBadge);
+  row.appendChild(lastSeen);
+  row.appendChild(editButton);
+  return row;
+}
+
+function renderSavedDevices() {
+  var panel = byId("savedDevicesPanel");
+  if (!panel) {
+    return;
+  }
+  var items = Array.isArray(state.savedMacs) ? state.savedMacs : [];
+  setText("savedDevicesCount", items.length + " / " + SAVED_MACS_LIMIT);
+  var empty = byId("savedDevicesEmpty");
+  var list = byId("savedDevicesList");
+  empty.hidden = items.length > 0;
+  list.hidden = items.length === 0;
+  while (list.firstChild) {
+    list.removeChild(list.firstChild);
+  }
+  items.forEach(function (entry) {
+    list.appendChild(createSavedDeviceRow(entry));
+  });
+  panel.classList.toggle("is-collapsed", state.savedPanelCollapsed);
+  var toggle = byId("savedDevicesToggle");
+  if (toggle) {
+    toggle.setAttribute(
+      "aria-expanded",
+      state.savedPanelCollapsed ? "false" : "true"
+    );
+    toggle.setAttribute(
+      "aria-label",
+      state.savedPanelCollapsed ? "展开我的设备" : "收起我的设备"
+    );
+  }
+  var addButton = byId("addSavedDeviceButton");
+  var emptyAddButton = byId("savedDevicesEmptyAdd");
+  var limitReached = items.length >= SAVED_MACS_LIMIT;
+  if (addButton) {
+    addButton.disabled = limitReached;
+  }
+  if (emptyAddButton) {
+    emptyAddButton.disabled = limitReached;
+  }
+  var refresh = byId("savedDevicesRefresh");
+  if (refresh) {
+    refresh.disabled = state.inventoryScanning;
+  }
+}
+
+function fillSavedView(entry) {
+  var matches = matchSavedMac(entry, state.devices);
+  setText("savedViewMac", entry.display);
+  setText("savedViewNote", entry.note || "未填写用途");
+  var ipText = matches.map(function (device) {
+    return device.ip;
+  }).join("、");
+  if (!ipText) {
+    ipText = entry.lastSeenIp ? entry.lastSeenIp + "（上次）" : "未发现";
+  }
+  setText("savedViewIp", ipText);
+  setText("savedViewLastSeen", formatSavedLastSeen(entry, matches));
+  var useButton = byId("savedUseButton");
+  if (useButton) {
+    useButton.disabled = state.running || state.continuous || state.inventoryScanning;
+  }
+}
+
+function updateSavedNoteCount() {
+  var input = byId("savedNoteInput");
+  if (!input) {
+    return;
+  }
+  setText(
+    "savedNoteCount",
+    Math.min(input.value.length, SAVED_NOTE_LIMIT) + " / " + SAVED_NOTE_LIMIT
+  );
+}
+
+function showSavedMacError(message) {
+  var error = byId("savedMacError");
+  if (error) {
+    error.textContent = message || "";
+    error.hidden = !message;
+  }
+  var input = byId("savedMacInput");
+  if (input) {
+    input.setAttribute("aria-invalid", message ? "true" : "false");
+  }
+}
+
+function isSavedFormDirty() {
+  if (savedDialogMode !== "edit" && savedDialogMode !== "create") {
+    return false;
+  }
+  var macInput = byId("savedMacInput");
+  var noteInput = byId("savedNoteInput");
+  if (!macInput || !noteInput) {
+    return false;
+  }
+  var display = macInput.value.trim();
+  var note = noteInput.value.trim();
+  if (savedDialogMode === "create") {
+    return !!(display || note);
+  }
+  return display !== savedDialogOriginal.display ||
+    note !== savedDialogOriginal.note;
+}
+
+function openSavedDeviceDialog(mode, id) {
+  var dialog = byId("savedDeviceDialog");
+  if (!dialog) {
+    return;
+  }
+  if (mode === "create" && state.savedMacs.length >= SAVED_MACS_LIMIT) {
+    toast("最多保存 " + SAVED_MACS_LIMIT + " 个 MAC。", true);
+    return;
+  }
+  var entry = null;
+  if (mode !== "create") {
+    entry = state.savedMacs.filter(function (item) {
+      return item.id === id;
+    })[0];
+    if (!entry) {
+      return;
+    }
+  }
+  if (dialog.hidden) {
+    savedDialogReturnFocus = document.activeElement;
+  }
+  savedDialogMode = mode;
+  savedDialogId = entry ? entry.id : "";
+  var view = byId("savedDeviceView");
+  var form = byId("savedDeviceForm");
+  view.hidden = mode !== "view";
+  form.hidden = mode === "view";
+  setText("savedDialogTitle", "已保存的 MAC");
+  setText("savedFormTitle", mode === "create" ? "添加 MAC" : "编辑 MAC");
+  if (mode === "view") {
+    fillSavedView(entry);
+  } else {
+    var display = entry ? entry.display : "";
+    var note = entry ? entry.note : "";
+    byId("savedMacInput").value = display;
+    byId("savedNoteInput").value = note;
+    savedDialogOriginal = { display: display.trim(), note: note.trim() };
+    showSavedMacError("");
+    updateSavedNoteCount();
+  }
+  dialog.hidden = false;
+  document.body.classList.add("has-modal");
+  if (mode === "view") {
+    var editButton = byId("savedEditButton");
+    if (editButton) {
+      editButton.focus();
+    }
+  } else {
+    var macInput = byId("savedMacInput");
+    if (macInput) {
+      macInput.focus();
+      macInput.select();
+    }
+  }
+}
+
+function closeSavedDeviceDialog(force) {
+  var dialog = byId("savedDeviceDialog");
+  if (!dialog || dialog.hidden) {
+    return;
+  }
+  if (!force && isSavedFormDirty()) {
+    askConfirm("有未保存的修改，确定关闭吗？", "放弃修改").then(function (ok) {
+      if (ok) {
+        closeSavedDeviceDialog(true);
+      }
+    });
+    return;
+  }
+  dialog.hidden = true;
+  document.body.classList.remove("has-modal");
+  savedDialogMode = "";
+  savedDialogId = "";
+  showSavedMacError("");
+  var focusTarget = savedDialogReturnFocus;
+  savedDialogReturnFocus = null;
+  if (focusTarget && typeof focusTarget.focus === "function") {
+    focusTarget.focus();
+  }
+}
+
+function validateSavedForm() {
+  var macInput = byId("savedMacInput");
+  var noteInput = byId("savedNoteInput");
+  var display = macInput.value.trim();
+  if (!display) {
+    showSavedMacError("请输入 MAC 后四位。");
+    macInput.focus();
+    return null;
+  }
+  var classification = classifySuffixInput(display);
+  var normalized = normalizeSuffix(display);
+  if (!normalized) {
+    showSavedMacError(inputErrorMessage(classification.status));
+    macInput.focus();
+    return null;
+  }
+  var duplicate = state.savedMacs.some(function (item) {
+    return item.normalized === normalized && item.id !== savedDialogId;
+  });
+  if (duplicate) {
+    showSavedMacError("这个 MAC 已经保存过了。");
+    macInput.focus();
+    return null;
+  }
+  return {
+    display: display,
+    normalized: normalized,
+    note: noteInput.value.trim().slice(0, SAVED_NOTE_LIMIT)
+  };
+}
+
+function saveSavedDevice() {
+  var values = validateSavedForm();
+  if (!values) {
+    return;
+  }
+  var editing = savedDialogMode === "edit";
+  if (!editing && state.savedMacs.length >= SAVED_MACS_LIMIT) {
+    showSavedMacError("最多保存 " + SAVED_MACS_LIMIT + " 个 MAC。");
+    return;
+  }
+  var now = Date.now();
+  var next = state.savedMacs.slice();
+  var targetId = savedDialogId;
+  if (editing) {
+    next = next.map(function (item) {
+      if (item.id !== targetId) {
+        return item;
+      }
+      var macChanged = item.normalized !== values.normalized;
+      return {
+        id: item.id,
+        display: values.display,
+        normalized: values.normalized,
+        note: values.note,
+        lastSeenIp: macChanged ? "" : item.lastSeenIp,
+        lastSeenFullMac: macChanged ? "" : item.lastSeenFullMac,
+        lastSeenInterface: macChanged ? "" : item.lastSeenInterface,
+        lastSeenRange: macChanged ? "" : item.lastSeenRange,
+        lastSeenAt: macChanged ? 0 : item.lastSeenAt,
+        createdAt: item.createdAt,
+        updatedAt: now
+      };
+    });
+  } else {
+    var entry = {
+      id: createSavedMacId(),
+      display: values.display,
+      normalized: values.normalized,
+      note: values.note,
+      lastSeenIp: "",
+      lastSeenFullMac: "",
+      lastSeenInterface: "",
+      lastSeenRange: "",
+      lastSeenAt: 0,
+      createdAt: now,
+      updatedAt: now
+    };
+    next.push(entry);
+    targetId = entry.id;
+  }
+  persistSavedMacs(next);
+  mergeSavedMacLastSeen(state.devices);
+  renderSavedDevices();
+  updateControls();
+  openSavedDeviceDialog("view", targetId);
+  toast(editing ? "已更新" : "已保存", false);
+}
+
+function deleteSavedDevice() {
+  var id = savedDialogId;
+  if (!id) {
+    return;
+  }
+  askConfirm("删除后不可恢复，确定删除这个 MAC 吗？", "删除").then(function (ok) {
+    if (!ok) {
+      return;
+    }
+    persistSavedMacs(state.savedMacs.filter(function (item) {
+      return item.id !== id;
+    }));
+    renderSavedDevices();
+    updateControls();
+    closeSavedDeviceDialog(true);
+    toast("已删除", false);
+  });
+}
+
+function useSavedForSearch() {
+  var entry = state.savedMacs.filter(function (item) {
+    return item.id === savedDialogId;
+  })[0];
+  if (!entry) {
+    return;
+  }
+  if (state.running || state.continuous || state.inventoryScanning) {
+    toast("当前正在扫描，请稍后再试。", true);
+    return;
+  }
+  var existing = suffixInputs().filter(function (input) {
+    return normalizeSuffix(input.value) === entry.normalized;
+  })[0];
+  if (existing) {
+    closeSavedDeviceDialog(true);
+    existing.focus();
+    existing.select();
+    toast("这个 MAC 已在输入框中。", false);
+    return;
+  }
+  var values = suffixInputs().map(function (input) {
+    return input.value.trim();
+  }).filter(Boolean);
+  if (values.length >= MAX_SUFFIX_INPUTS) {
+    toast("最多同时搜索 " + MAX_SUFFIX_INPUTS + " 个 MAC。", true);
+    return;
+  }
+  setSuffixInputs(values.concat([entry.display]));
+  closeSavedDeviceDialog(true);
+  var inputs = suffixInputs();
+  var lastInput = inputs[inputs.length - 1];
+  if (lastInput) {
+    lastInput.focus();
+  }
+  toast("已填入 " + entry.display, false);
+}
+
+function askConfirm(message, confirmLabel) {
+  return new Promise(function (resolve) {
+    confirmResolver = resolve;
+    setText("confirmMessage", message);
+    var okButton = byId("confirmOk");
+    okButton.textContent = confirmLabel || "确定";
+    byId("confirmDialog").hidden = false;
+    okButton.focus();
+  });
+}
+
+function settleConfirm(result) {
+  var dialog = byId("confirmDialog");
+  if (!dialog || dialog.hidden) {
+    return;
+  }
+  dialog.hidden = true;
+  var resolve = confirmResolver;
+  confirmResolver = null;
+  if (resolve) {
+    resolve(result);
+  }
+}
+
+function dialogFocusables(container) {
+  return Array.prototype.slice.call(container.querySelectorAll(
+    "button:not([disabled]), [href], input:not([disabled]), " +
+    "select:not([disabled]), textarea:not([disabled]), " +
+    '[tabindex]:not([tabindex="-1"])'
+  )).filter(function (element) {
+    return element.offsetParent !== null || element === document.activeElement;
+  });
+}
+
+function trapDialogFocus(event, container) {
+  if (event.key !== "Tab") {
+    return;
+  }
+  var items = dialogFocusables(container);
+  if (!items.length) {
+    return;
+  }
+  var first = items[0];
+  var last = items[items.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+async function refreshSavedDevices() {
+  await refreshDevices(true);
+  renderSavedDevices();
+}
+
+function bindSavedDeviceEvents() {
+  var addButton = byId("addSavedDeviceButton");
+  if (addButton) {
+    addButton.addEventListener("click", function () {
+      openSavedDeviceDialog("create");
+    });
+  }
+  var emptyAddButton = byId("savedDevicesEmptyAdd");
+  if (emptyAddButton) {
+    emptyAddButton.addEventListener("click", function () {
+      openSavedDeviceDialog("create");
+    });
+  }
+  var toggle = byId("savedDevicesToggle");
+  if (toggle) {
+    toggle.addEventListener("click", function () {
+      state.savedPanelCollapsed = !state.savedPanelCollapsed;
+      renderSavedDevices();
+    });
+  }
+  var refreshButton = byId("savedDevicesRefresh");
+  if (refreshButton) {
+    refreshButton.addEventListener("click", function () {
+      refreshSavedDevices();
+    });
+  }
+  var viewClose = byId("savedViewClose");
+  if (viewClose) {
+    viewClose.addEventListener("click", function () {
+      closeSavedDeviceDialog(false);
+    });
+  }
+  var formClose = byId("savedFormClose");
+  if (formClose) {
+    formClose.addEventListener("click", function () {
+      closeSavedDeviceDialog(false);
+    });
+  }
+  var formCancel = byId("savedFormCancel");
+  if (formCancel) {
+    formCancel.addEventListener("click", function () {
+      closeSavedDeviceDialog(false);
+    });
+  }
+  var formSave = byId("savedFormSave");
+  if (formSave) {
+    formSave.addEventListener("click", saveSavedDevice);
+  }
+  var editButton = byId("savedEditButton");
+  if (editButton) {
+    editButton.addEventListener("click", function () {
+      openSavedDeviceDialog("edit", savedDialogId);
+    });
+  }
+  var deleteButton = byId("savedDeleteButton");
+  if (deleteButton) {
+    deleteButton.addEventListener("click", deleteSavedDevice);
+  }
+  var useButton = byId("savedUseButton");
+  if (useButton) {
+    useButton.addEventListener("click", useSavedForSearch);
+  }
+
+  var macInput = byId("savedMacInput");
+  if (macInput) {
+    macInput.addEventListener("input", function () {
+      showSavedMacError("");
+    });
+    macInput.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        saveSavedDevice();
+      }
+    });
+  }
+  var noteInput = byId("savedNoteInput");
+  if (noteInput) {
+    noteInput.addEventListener("input", updateSavedNoteCount);
+    noteInput.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        saveSavedDevice();
+      }
+    });
+  }
+
+  var dialog = byId("savedDeviceDialog");
+  if (dialog) {
+    dialog.addEventListener("click", function (event) {
+      if (event.target === dialog) {
+        closeSavedDeviceDialog(false);
+      }
+    });
+  }
+  var confirmDialog = byId("confirmDialog");
+  if (confirmDialog) {
+    confirmDialog.addEventListener("click", function (event) {
+      if (event.target === confirmDialog) {
+        settleConfirm(false);
+      }
+    });
+  }
+  var confirmOk = byId("confirmOk");
+  if (confirmOk) {
+    confirmOk.addEventListener("click", function () {
+      settleConfirm(true);
+    });
+  }
+  var confirmCancel = byId("confirmCancel");
+  if (confirmCancel) {
+    confirmCancel.addEventListener("click", function () {
+      settleConfirm(false);
+    });
+  }
+
+  document.addEventListener("keydown", function (event) {
+    var confirm = byId("confirmDialog");
+    if (confirm && !confirm.hidden) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        settleConfirm(false);
+        return;
+      }
+      trapDialogFocus(event, confirm);
+      return;
+    }
+    var savedDialog = byId("savedDeviceDialog");
+    if (savedDialog && !savedDialog.hidden) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeSavedDeviceDialog(false);
+        return;
+      }
+      trapDialogFocus(event, savedDialog);
+    }
+  }, true);
+
+  window.addEventListener("storage", function (event) {
+    if (event && event.key && event.key !== SAVED_MACS_KEY) {
+      return;
+    }
+    state.savedMacs = readSavedMacs();
+    renderSavedDevices();
+    if (savedDialogMode === "view" && savedDialogId) {
+      var stillExists = state.savedMacs.some(function (item) {
+        return item.id === savedDialogId;
+      });
+      if (stillExists) {
+        openSavedDeviceDialog("view", savedDialogId);
+      } else {
+        closeSavedDeviceDialog(true);
+      }
+    }
+  });
+  window.addEventListener("pagehide", flushSavedMacsWrite);
+}
+
 function bindEvents() {
   var input = byId("macSuffix");
   var suffixList = byId("suffixInputList");
@@ -3638,6 +4552,9 @@ async function boot() {
   initializePanelLayout();
   bindEvents();
   bindTooltips();
+  state.savedMacs = readSavedMacs();
+  bindSavedDeviceEvents();
+  renderSavedDevices();
   var restored = restoreSearchIntent();
   var cachedNetworks = restoreNetworkCache();
   restoreNetworkSelection();
