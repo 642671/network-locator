@@ -1129,7 +1129,7 @@ function renderTargetSummary() {
 function isIpLinkTarget(target) {
   return !!target &&
     typeof target.closest === "function" &&
-    target.closest(".ip-link") !== null;
+    target.closest("a, button, input, select, textarea, .ip-link") !== null;
 }
 
 function getCookie(name) {
@@ -1405,6 +1405,7 @@ function renderNetworkList() {
     empty.className = "network-empty";
     empty.textContent = "没有可扫描的物理网段";
     list.appendChild(empty);
+    renderScopeChips();
     return;
   }
 
@@ -1461,6 +1462,7 @@ function renderNetworkList() {
     item.appendChild(range);
     list.appendChild(item);
   });
+  renderScopeChips();
 }
 
 function renderWarnings() {
@@ -1901,14 +1903,17 @@ function updateControls() {
   );
   setText(
     "emptyRefreshButton",
-    state.continuous
-      ? "停止持续搜索"
-      : filteredEmpty
-        ? "清除筛选"
-        : state.tableMode === "results"
-          ? "重新识别网段"
-          : "刷新设备总表"
+    state.inventoryScanning
+      ? "刷新中…"
+      : state.continuous
+        ? "停止持续搜索"
+        : filteredEmpty
+          ? "清除筛选"
+          : state.tableMode === "results"
+            ? "重新识别网段"
+            : "刷新设备总表"
   );
+  updateSavedDevicesLoading();
 }
 
 function setScanState(kind, title, message) {
@@ -1950,6 +1955,13 @@ function resetSelection() {
   setText("selectionText", "未选择设备");
   byId("copyButton").disabled = true;
   byId("copyIpButton").disabled = true;
+  var body = byId("resultsBody");
+  if (body) {
+    var checkboxes = body.querySelectorAll(".row-select");
+    for (var index = 0; index < checkboxes.length; index += 1) {
+      checkboxes[index].checked = false;
+    }
+  }
   var summary = document.querySelector(".selected-summary");
   if (summary) {
     summary.classList.remove("has-selection");
@@ -1959,8 +1971,13 @@ function resetSelection() {
 function selectRow(row) {
   var rows = byId("resultsBody").querySelectorAll("tr");
   rows.forEach(function (item) {
-    item.classList.toggle("is-selected", item === row);
-    item.setAttribute("aria-selected", item === row ? "true" : "false");
+    var isSelected = item === row;
+    item.classList.toggle("is-selected", isSelected);
+    item.setAttribute("aria-selected", isSelected ? "true" : "false");
+    var checkbox = item.querySelector(".row-select");
+    if (checkbox) {
+      checkbox.checked = isSelected;
+    }
   });
   state.selectedMac = row.getAttribute("data-mac") || "";
   state.selectedIp = row.getAttribute("data-ip") || "";
@@ -2240,6 +2257,66 @@ function clearTableFilter(focusInput) {
   }
 }
 
+function stateLabel(value) {
+  var normalized = String(value || "").toUpperCase();
+  if (normalized === "REACHABLE") {
+    return "可达";
+  }
+  if (normalized === "LOCAL") {
+    return "本机";
+  }
+  if (normalized === "DELAY") {
+    return "延迟";
+  }
+  if (normalized === "STALE") {
+    return "陈旧";
+  }
+  if (normalized === "PROBE") {
+    return "探测中";
+  }
+  return value || "未知";
+}
+
+function copyTableValue(text) {
+  var value = String(text || "");
+  if (!value) {
+    return;
+  }
+  writeClipboard(value).then(function () {
+    toast("已复制 " + value, false);
+  }).catch(function () {
+    toast("复制失败，请重试。", true);
+  });
+}
+
+function renderScopeChips() {
+  var wrap = byId("networkScopeChips");
+  if (!wrap) {
+    return;
+  }
+  while (wrap.firstChild) {
+    wrap.removeChild(wrap.firstChild);
+  }
+  var selected = selectedNetworkIds();
+  var networks = (state.networks || []).filter(function (network) {
+    return selected.indexOf(networkKey(network)) >= 0;
+  });
+  wrap.hidden = !networks.length;
+  networks.slice(0, 3).forEach(function (network) {
+    var chip = document.createElement("span");
+    chip.className = "scope-chip";
+    chip.textContent = String(network.interface || "") +
+      (network.scan_range ? " · " + network.scan_range : "");
+    wrap.appendChild(chip);
+  });
+  if (networks.length > 3) {
+    var extra = document.createElement("span");
+    extra.className = "scope-chip is-extra";
+    extra.textContent = "+" + (networks.length - 3);
+    wrap.appendChild(extra);
+  }
+}
+
 function paintTableRows(preserveSelection) {
   var body = byId("resultsBody");
   var sourceRows = rawTableRows();
@@ -2256,24 +2333,35 @@ function paintTableRows(preserveSelection) {
     body.removeChild(body.firstChild);
   }
   rows.forEach(function (result) {
+    var rowKey = result.interface + "|" + result.ip + "|" + result.mac;
     var row = document.createElement("tr");
     row.tabIndex = 0;
     row.setAttribute("role", "row");
     row.setAttribute("aria-selected", "false");
     row.setAttribute("data-mac", result.mac);
     row.setAttribute("data-ip", result.ip);
-    row.setAttribute(
-      "data-key",
-      result.interface + "|" + result.ip + "|" + result.mac
-    );
+    row.setAttribute("data-key", rowKey);
+    row.setAttribute("data-interface", result.interface || "");
+    row.setAttribute("data-range", result.scan_range || "");
 
-    var interfaceCell = document.createElement("td");
-    interfaceCell.textContent = result.interface;
-    var rangeCell = document.createElement("td");
-    rangeCell.className = "mono-value";
-    rangeCell.textContent = result.scan_range;
+    var selectCell = document.createElement("td");
+    selectCell.className = "select-cell";
+    var checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "row-select";
+    checkbox.checked = !!selectedKey && selectedKey === rowKey;
+    checkbox.setAttribute("aria-label", "选择 " + result.ip);
+    checkbox.addEventListener("change", function () {
+      if (checkbox.checked) {
+        selectRow(row);
+      } else {
+        resetSelection();
+      }
+    });
+    selectCell.appendChild(checkbox);
+
     var ipCell = document.createElement("td");
-    ipCell.className = "mono-value";
+    ipCell.className = "mono-value ip-cell";
     var ipUrl = deviceWebUrl(result.ip);
     if (ipUrl) {
       var ipLink = document.createElement("a");
@@ -2287,9 +2375,11 @@ function paintTableRows(preserveSelection) {
     } else {
       ipCell.textContent = result.ip;
     }
+
     var macCell = document.createElement("td");
-    macCell.className = "mono-value";
+    macCell.className = "mono-value mac-cell";
     macCell.textContent = result.mac;
+
     var targetCell = document.createElement("td");
     targetCell.className = "target-column";
     var matchedSuffixes = Array.isArray(result.matched_suffixes)
@@ -2308,18 +2398,41 @@ function paintTableRows(preserveSelection) {
       tag.textContent = displaySuffixFor(suffix);
       targetCell.appendChild(tag);
     });
+
     var stateCell = document.createElement("td");
+    stateCell.className = "state-cell";
     var chip = document.createElement("span");
     chip.className = "state-chip " + stateClass(result.state);
-    chip.textContent = result.state === "LOCAL" ? "本机" : result.state;
+    chip.textContent = stateLabel(result.state);
     stateCell.appendChild(chip);
 
-    row.appendChild(interfaceCell);
-    row.appendChild(rangeCell);
+    var actionsCell = document.createElement("td");
+    actionsCell.className = "actions-cell";
+    var copyIp = document.createElement("button");
+    copyIp.type = "button";
+    copyIp.className = "row-action";
+    copyIp.textContent = "复制 IP";
+    copyIp.setAttribute("aria-label", "复制 IP " + result.ip);
+    copyIp.addEventListener("click", function () {
+      copyTableValue(result.ip);
+    });
+    var copyMac = document.createElement("button");
+    copyMac.type = "button";
+    copyMac.className = "row-action";
+    copyMac.textContent = "复制 MAC";
+    copyMac.setAttribute("aria-label", "复制 MAC " + result.mac);
+    copyMac.addEventListener("click", function () {
+      copyTableValue(result.mac);
+    });
+    actionsCell.appendChild(copyIp);
+    actionsCell.appendChild(copyMac);
+
+    row.appendChild(selectCell);
     row.appendChild(ipCell);
     row.appendChild(macCell);
     row.appendChild(targetCell);
     row.appendChild(stateCell);
+    row.appendChild(actionsCell);
     row.addEventListener("click", function (event) {
       if (isIpLinkTarget(event.target)) {
         return;
@@ -2355,6 +2468,7 @@ function paintTableRows(preserveSelection) {
   updateTableFilterSummary(sourceRows.length, rows.length);
   updateTableFilterControls();
   updateTableSortState();
+  renderScopeChips();
 
   var restoredRow = null;
   if (selectedKey) {
@@ -2906,6 +3020,7 @@ async function refreshDevices(showError) {
     return false;
   }
   state.inventoryScanning = true;
+  var inventoryStartedAt = Date.now();
   updateControls();
   setText("resultSummary", "正在主动探测当前网段内的设备。");
   try {
@@ -2942,6 +3057,12 @@ async function refreshDevices(showError) {
     }
     return false;
   } finally {
+    var remainingLoadingTime = 600 - (Date.now() - inventoryStartedAt);
+    if (remainingLoadingTime > 0) {
+      await new Promise(function (resolve) {
+        window.setTimeout(resolve, remainingLoadingTime);
+      });
+    }
     state.inventoryScanning = false;
     updateControls();
   }
@@ -3433,6 +3554,8 @@ function showTooltip(target) {
 function positionTooltip(target) {
   var tooltip = byId("glassTooltip");
   var rect = target.getBoundingClientRect();
+  tooltip.style.left = "0px";
+  tooltip.style.top = "0px";
   var tooltipRect = tooltip.getBoundingClientRect();
   var center = rect.left + rect.width / 2;
   var half = tooltipRect.width / 2;
@@ -3480,6 +3603,29 @@ function sidebarWidthBounds() {
   return { min: MIN_SIDEBAR_WIDTH, max: maximum };
 }
 
+var workspaceResizeObserver = null;
+
+function updateWorkspaceDensity() {
+  var workspace = document.querySelector(".workspace");
+  if (!workspace) {
+    return;
+  }
+  var width = workspace.getBoundingClientRect().width;
+  workspace.classList.toggle("is-narrow", width > 0 && width < 780);
+}
+
+function observeWorkspaceDensity() {
+  var workspace = document.querySelector(".workspace");
+  if (!workspace) {
+    return;
+  }
+  updateWorkspaceDensity();
+  if (typeof ResizeObserver === "function" && !workspaceResizeObserver) {
+    workspaceResizeObserver = new ResizeObserver(updateWorkspaceDensity);
+    workspaceResizeObserver.observe(workspace);
+  }
+}
+
 function applySidebarWidth(value, persist) {
   var handle = byId("sidebarResizer");
   var bounds = sidebarWidthBounds();
@@ -3492,6 +3638,11 @@ function applySidebarWidth(value, persist) {
   handle.setAttribute("aria-valuenow", String(width));
   if (persist) {
     writeStoredJson(SIDEBAR_WIDTH_KEY, width);
+  }
+  if (window.requestAnimationFrame) {
+    window.requestAnimationFrame(updateWorkspaceDensity);
+  } else {
+    updateWorkspaceDensity();
   }
   return width;
 }
@@ -3637,6 +3788,7 @@ function initializePanelLayout() {
   bindPanelResizer(byId("networkResizer"), "horizontal");
   applySidebarWidth(storedSidebarWidth || DEFAULT_SIDEBAR_WIDTH, false);
   applyScanPaneHeight(storedScanPaneHeight || DEFAULT_SCAN_PANE_HEIGHT, false);
+  observeWorkspaceDensity();
   window.addEventListener("resize", function () {
     var sidebarHandle = byId("sidebarResizer");
     var scanHandle = byId("networkResizer");
@@ -3817,6 +3969,48 @@ function createSavedDeviceRow(entry) {
   return row;
 }
 
+function updateSavedDevicesLoading() {
+  var loading = !!state.inventoryScanning;
+  var panel = byId("savedDevicesPanel");
+  if (panel) {
+    panel.setAttribute("aria-busy", loading ? "true" : "false");
+    panel.hidden = state.savedMacs.length === 0 && !loading;
+  }
+  var emptyHint = byId("savedDevicesEmptyHint");
+  if (emptyHint) {
+    emptyHint.hidden = state.savedMacs.length > 0 || loading;
+  }
+  var loadingRow = byId("savedDevicesLoadingRow");
+  if (loadingRow) {
+    loadingRow.hidden = !loading;
+  }
+  var spinner = byId("savedDevicesRefreshSpinner");
+  if (spinner) {
+    spinner.hidden = !loading;
+  }
+  setText("savedDevicesRefreshText", loading ? "刷新中…" : "刷新 IP");
+  var refresh = byId("savedDevicesRefresh");
+  if (refresh) {
+    refresh.disabled = loading;
+    refresh.classList.toggle("is-loading", loading);
+  }
+  var list = byId("savedDevicesList");
+  if (list) {
+    list.classList.toggle("is-refreshing", loading);
+  }
+  var sidebarRefresh = byId("refreshButton");
+  if (sidebarRefresh) {
+    sidebarRefresh.classList.toggle(
+      "is-spinning",
+      loading || state.networkVerifying
+    );
+  }
+  var emptyRefresh = byId("emptyRefreshButton");
+  if (emptyRefresh) {
+    emptyRefresh.classList.toggle("is-loading", loading);
+  }
+}
+
 function renderSavedDevices() {
   var panel = byId("savedDevicesPanel");
   if (!panel) {
@@ -3824,9 +4018,12 @@ function renderSavedDevices() {
   }
   var items = Array.isArray(state.savedMacs) ? state.savedMacs : [];
   setText("savedDevicesCount", items.length + " / " + SAVED_MACS_LIMIT);
-  var empty = byId("savedDevicesEmpty");
   var list = byId("savedDevicesList");
-  empty.hidden = items.length > 0;
+  var emptyHint = byId("savedDevicesEmptyHint");
+  panel.hidden = items.length === 0 && !state.inventoryScanning;
+  if (emptyHint) {
+    emptyHint.hidden = items.length > 0 || state.inventoryScanning;
+  }
   list.hidden = items.length === 0;
   while (list.firstChild) {
     list.removeChild(list.firstChild);
@@ -4201,8 +4398,11 @@ function trapDialogFocus(event, container) {
 }
 
 async function refreshSavedDevices() {
-  await refreshDevices(true);
+  var ok = await refreshDevices(true);
   renderSavedDevices();
+  if (ok) {
+    toast("当前 IP 已刷新", false);
+  }
 }
 
 function bindSavedDeviceEvents() {

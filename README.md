@@ -10,23 +10,28 @@ accepted.
 
 - **Phase 1 (done): source move only.** TOS source now lives in `apps/tos7/`;
   its `v1.0.017` builds were byte-identical to the original repository.
-- **Phase 2 (current): new application identity.** The TOS app is renamed to
+- **Phase 2 (done): new application identity.** The TOS app was renamed to
   `network-locator` (display name "网络定位") with version `1.1.0`.
   The app id, package name, systemd unit, socket, runtime user, and
   `/usr/local/network-locator/` package paths all use the new identity, so
   TOS and App Center treat it as a **new application** rather than an update
   of `lan-mac-finder`. Feature behavior is unchanged from `1.0.017`.
-- **Phase 3 (in progress): saved devices.** Version `1.2.0` adds a
-  "我的设备" panel that stores up to 8 MAC suffixes with notes, resolves each
-  entry's current IP after every scan, copies an IP with one click, and keeps
-  the existing generic MAC search unchanged. Implemented and tested locally;
-  not committed or submitted while `1.1.0` is still in platform review.
+- **Phase 3 (current): 我的设备 section.** Version `1.2.0` adds a saved MAC
+  section that stores up to 8 MAC suffixes with notes, resolves each entry's
+  current IP after every scan, copies an IP with one click, and keeps the
+  existing generic MAC search unchanged. Version `1.2.1` separates
+  「我的设备」 and 「设备总表」 into two sections, puts the 「设备总表」 heading
+  directly above its device list, applies a green visual refresh, simplifies
+  the device table with row selection and inline copy, adds network chips,
+  fixes horizontal tooltips, shows an inline loading row while refreshing,
+  and updates the app icon.
 - **Published.** The repository is public at
-  `https://github.com/642671/network-locator`; release `v1.1.0-r2` carries
-  the x86_64 and aarch64 Debs and SHA256 sidecars.
+  `https://github.com/642671/network-locator`; releases `v1.1.0-r2` and
+  `v1.2.0` carry the x86_64 and aarch64 Debs and SHA256 sidecars. `v1.2.1` is
+  the current build under test.
 - **TDP:** App `network-locator` is registered (platform `x86_64`) and version
   `1.1.0` was submitted on 2026-11-21. It is currently in platform review
-  (`status=0`). Version `1.2.0` will be submitted after that review ends.
+  (`status=0`). `1.2.x` will be submitted after that review ends.
 - The `aarch64` Deb is available in the Release but cannot be submitted under
   the same TDP App because an App is bound to one architecture and an App ID
   can only be registered once. A separate identity would be needed for an
