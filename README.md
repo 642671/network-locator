@@ -1,0 +1,81 @@
+# 网络定位 (Network Locator)
+
+Unified source tree for the 网络定位 (Network Locator) family. This repository was
+migrated from the standalone TOS 7 repository
+[`642671/lan-mac-finder-tos7`](https://github.com/642671/lan-mac-finder-tos7),
+which remains the published and rollback baseline until the migration is
+accepted.
+
+## Status
+
+- **Phase 1 (done): source move only.** TOS source now lives in `apps/tos7/`;
+  its `v1.0.017` builds were byte-identical to the original repository.
+- **Phase 2 (current): new application identity.** The TOS app is renamed to
+  `network-locator` (display name "网络定位") with version `1.1.0`.
+  The app id, package name, systemd unit, socket, runtime user, and
+  `/usr/local/network-locator/` package paths all use the new identity, so
+  TOS and App Center treat it as a **new application** rather than an update
+  of `lan-mac-finder`. Feature behavior is unchanged from `1.0.017`.
+- `network-locator` must still be verified as unused in the TerraMaster
+  developer platform before registration; no TDP API call has been made.
+- The Windows portable build (`642671/lan-mac-finder-exe`) has **not** been
+  migrated.
+- No remote repository has been created, and nothing has been committed.
+
+## Identity
+
+| Item | Value |
+| --- | --- |
+| App id / package | `network-locator` |
+| Display name | 网络定位（Network Locator） |
+| systemd unit | `networklocator-system.service` |
+| Socket | `/var/api/network-locator.sock` |
+| Runtime user | `network-locator` |
+| Package root | `/usr/local/network-locator/` |
+| Version | `1.1.0` |
+
+The old `lan-mac-finder` package is not upgraded by this build; installing it
+alongside is possible only because every path, user, socket, and unit name
+differs. A real NAS should not run both at the same time.
+
+## Layout
+
+| Path | Purpose |
+| --- | --- |
+| `apps/tos7/` | TOS 7 iframe Deb application, the only store candidate |
+| `apps/windows/` | Reserved for the Windows portable build (phase 5) |
+| `shared/web/` | Reserved for front-end modules shared by both apps (phase 4) |
+| `packaging/` | Reserved for the extracted deterministic Deb builder (phase 2/3) |
+| `tools/` | Reserved for repository-level tooling (version sync, preflight) |
+| `docs/` | Project layout, migration notes, screenshots |
+
+## Build and test (TOS 7)
+
+```bash
+cd apps/tos7
+python3 -m unittest discover -s backend/tests -v
+node --check frontend/csv.js && node --check frontend/app.js
+node --test tests/frontend_csv.test.js tests/frontend_search_state.test.js
+python3 build.py --platform x86_64
+python3 build.py --platform aarch64
+```
+
+Requirements: Python 3.10+, Node 20 (tests only). No third-party runtime
+dependencies and no front-end build chain.
+
+The local preview server runs from `apps/tos7` and serves synthetic data:
+
+```bash
+python3 apps/tos7/tools/preview_server.py --port 4178
+```
+
+## Version source
+
+`apps/tos7/VERSION` remains the authoritative version, together with the other
+locations listed in `apps/tos7/README.md`. A single root-level version source
+and `tools/sync_version.py` are still pending; do not add a competing version
+file before then.
+
+## License
+
+See `LICENSE`.

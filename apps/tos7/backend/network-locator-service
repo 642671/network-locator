@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""TOS service entry point for Network Locator."""
+
+from network_locator.server import main
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
