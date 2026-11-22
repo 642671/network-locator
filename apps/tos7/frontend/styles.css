@@ -2678,6 +2678,7 @@ body.has-modal {
   --row-hover: rgba(37, 99, 235, 0.05);
   --row-selected: rgba(37, 99, 235, 0.1);
   --radius: 18px;
+  --window-frame: 12px;
 }
 
 html[data-theme="dark"] {
@@ -2717,6 +2718,11 @@ html[data-theme="dark"] {
 }
 
 body {
+  width: calc(100% - (2 * var(--window-frame)));
+  height: calc(100% - var(--window-frame));
+  margin: 0 var(--window-frame) var(--window-frame);
+  padding-top: var(--titlebar-height);
+  border-radius: 0 0 var(--radius) var(--radius);
   background:
     radial-gradient(1200px 800px at 12% 8%, rgba(255, 255, 255, 0.7), transparent 60%),
     linear-gradient(135deg, #f7f8fb 0%, #eef1f6 48%, #e8edf6 100%);
@@ -2731,6 +2737,7 @@ html[data-theme="dark"] body {
 }
 
 body::before {
+  inset: var(--titlebar-height) var(--window-frame) var(--window-frame);
   opacity: 0.16;
 }
 
@@ -2739,8 +2746,11 @@ body::before {
 }
 
 .window-titlebar {
+  top: 0;
+  right: 0;
+  left: var(--window-frame);
   border-top-left-radius: var(--radius);
-  border-top-right-radius: var(--radius);
+  border-top-right-radius: 0;
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.35));
 }
 
@@ -2774,8 +2784,8 @@ html[data-theme="dark"] .workspace {
 }
 
 .workspace-heading h2 {
-  font-size: 22px;
-  font-weight: 750;
+  font-size: 12px;
+  font-weight: 650;
   letter-spacing: -0.01em;
 }
 
@@ -2785,7 +2795,8 @@ html[data-theme="dark"] .workspace {
 }
 
 .section-heading h1 {
-  font-size: 25px;
+  font-size: 14px;
+  font-weight: 650;
 }
 
 .section-kicker {
@@ -2813,13 +2824,13 @@ html[data-theme="dark"] .workspace {
 
 .results-table th {
   height: 44px;
-  background: rgba(241, 245, 249, 0.86);
+  background: #f1f5f9;
   color: var(--muted);
   font-size: 11px;
 }
 
 html[data-theme="dark"] .results-table th {
-  background: rgba(30, 41, 59, 0.7);
+  background: #1e293b;
 }
 
 .results-table td {
@@ -3182,10 +3193,15 @@ html[data-theme="dark"] .secondary-button {
   font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
 }
 
+.resize-safety-corner {
+  right: var(--window-frame);
+  bottom: var(--window-frame);
+}
+
 .window-resize-grip {
   position: fixed;
-  right: 7px;
-  bottom: 7px;
+  right: calc(var(--window-frame) + 7px);
+  bottom: calc(var(--window-frame) + 7px);
   z-index: 10000;
   display: grid;
   grid-template-columns: repeat(3, 4px);

@@ -200,6 +200,68 @@ class PackageContractTests(unittest.TestCase):
             styles,
             r"\.results-table th\s*\{[^}]*var\(--surface-solid\)",
         )
+        self.assertRegex(
+            styles,
+            r"\.results-table th\s*\{[^}]*background:\s*#f1f5f9\s*;",
+        )
+        self.assertRegex(
+            styles,
+            r'html\[data-theme="dark"\] \.results-table th\s*\{[^}]*background:\s*#1e293b\s*;',
+        )
+        self.assertNotRegex(
+            styles,
+            r"\.results-table th\s*\{[^}]*background:\s*rgba\(",
+        )
+        self.assertNotRegex(
+            styles,
+            r'html\[data-theme="dark"\] \.results-table th\s*\{[^}]*background:\s*rgba\(',
+        )
+        self.assertRegex(styles, r"--window-frame:\s*12px")
+        self.assertRegex(
+            styles,
+            r"\.window-titlebar\s*\{[^}]*left:\s*var\(--window-frame\)",
+        )
+        self.assertRegex(
+            styles,
+            r"body\s*\{[^}]*margin:\s*0\s*var\(--window-frame\)\s*var\(--window-frame\)",
+        )
+        for block in re.findall(r"\.window-titlebar\s*\{([^}]*)\}", styles):
+            top = re.search(r"^\s*top:\s*([^;]+);", block, re.M)
+            if top:
+                self.assertEqual(top.group(1).strip(), "0")
+            right = re.search(r"^\s*right:\s*([^;]+);", block, re.M)
+            if right:
+                self.assertEqual(right.group(1).strip(), "0")
+        self.assertRegex(
+            styles,
+            r"\.section-heading h1\s*\{[^}]*font-size:\s*14px",
+        )
+        self.assertRegex(
+            styles,
+            r"\.section-heading h1\s*\{[^}]*font-weight:\s*650",
+        )
+        self.assertRegex(
+            styles,
+            r"\.workspace-heading h2\s*\{[^}]*font-size:\s*12px",
+        )
+        self.assertRegex(
+            styles,
+            r"\.workspace-heading h2\s*\{[^}]*font-weight:\s*650",
+        )
+        def last_heading_decl(selector: str, prop: str) -> str:
+            values = []
+            for block in re.findall(rf"{selector}\s*\{{([^}}]*)\}}", styles):
+                values.extend(
+                    value.strip()
+                    for value in re.findall(rf"{prop}:\s*([^;]+);", block)
+                )
+            self.assertTrue(values, selector + " " + prop)
+            return values[-1]
+
+        self.assertEqual(last_heading_decl(r"\.section-heading h1", "font-size"), "14px")
+        self.assertEqual(last_heading_decl(r"\.section-heading h1", "font-weight"), "650")
+        self.assertEqual(last_heading_decl(r"\.workspace-heading h2", "font-size"), "12px")
+        self.assertEqual(last_heading_decl(r"\.workspace-heading h2", "font-weight"), "650")
         self.assertIn('id="selectAllNetworksButton"', html)
         self.assertIn("network_ids", script)
         self.assertIn("network_ids", server)
