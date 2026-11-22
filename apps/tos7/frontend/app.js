@@ -3626,13 +3626,19 @@ function sidebarWidthBounds() {
 
 var workspaceResizeObserver = null;
 
+// Default 860x720 window, after the 6px resizer and the 560px minimum
+// workspace clamp, leaves a workspace of about 560px. That is intentionally
+// below this threshold so the default window uses the wrapping narrow layout.
+// Do not raise this value without also revisiting the default window size.
+var WORKSPACE_NARROW_MAX_WIDTH = 680;
+
 function updateWorkspaceDensity() {
   var workspace = document.querySelector(".workspace");
   if (!workspace) {
     return;
   }
   var width = workspace.getBoundingClientRect().width;
-  workspace.classList.toggle("is-narrow", width > 0 && width < 780);
+  workspace.classList.toggle("is-narrow", width > 0 && width < WORKSPACE_NARROW_MAX_WIDTH);
 }
 
 function observeWorkspaceDensity() {

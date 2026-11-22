@@ -2,96 +2,96 @@
 name = "网络定位"
 auth = "qishiyi"
 descript = "发现当前局域网设备，读取网卡、IP、MAC 状态，并按 MAC 后四位快速定位设备。"
-release_note = "1.3.2：应用内侧边框收到贴边，浅色底改为贴近内置应用的白色，默认窗口宽度调整为 1040。"
+release_note = "1.3.3：修复上一版默认宽度下复制和导出按钮与筛选框重叠的问题，默认窗口改为 860×720 以贴近应用中心宽度，较窄窗口中按钮会换行而不压住筛选框。"
 important = "扫描只读取本机路由和邻居表，不会更改 NAS 或其他设备的网络配置。"
 
 [zh-hk]
 name = "網絡定位"
 auth = "qishiyi"
 descript = "搜尋目前區域網絡裝置，讀取網卡、IP、MAC 狀態，並按 MAC 尾四位定位裝置。"
-release_note = "1.3.2：應用內側邊框收到貼邊，淺色底改為貼近內置應用的白色，預設視窗寬度調整為 1040。"
+release_note = "1.3.3：修復上一版預設寬度下複製和匯出按鈕與篩選框重疊的問題，預設視窗改為 860×720 以貼近應用中心寬度，較窄視窗中按鈕會換行而不壓住篩選框。"
 important = "掃描只讀取本機路由和鄰居表，不會更改 NAS 或其他裝置的網絡設定。"
 
 [en-us]
 name = "Network Locator"
 auth = "qishiyi"
 descript = "Find devices on the current LAN and match the last four MAC characters with live interface and neighbor data."
-release_note = "1.3.2: pull the inner frame flush to the window edge, use a built-in-app white background in light theme, and set the default window width to 1040."
+release_note = "1.3.3: fix the toolbar overlap at the previous default width, set the default window to 860x720 to match App Center, and wrap copy/export buttons so they do not overlap the filter on the narrower default."
 important = "The app only reads local routing and neighbor data. It never changes NAS or device network settings."
 
 [fr-fr]
 name = "Localisateur réseau"
 auth = "qishiyi"
 descript = "Trouvez les appareils du reseau local et filtrez-les par les quatre derniers caracteres de leur adresse MAC."
-release_note = "1.3.2 : le cadre interieur est colle au bord de la fenetre, le fond clair devient blanc comme les apps integrees, et la largeur par defaut passe a 1040."
+release_note = "1.3.3 : correction du chevauchement de la barre d'outils a la largeur par defaut precedente, fenetre par defaut a 860x720 pour correspondre au Centre d'applications, et les boutons copier/exporter passent a la ligne sans recouvrir le filtre."
 important = "L'application lit uniquement le routage local et la table voisine, sans modifier la configuration reseau."
 
 [de-de]
 name = "Netzwerk-Locator"
 auth = "qishiyi"
 descript = "Findet Geraete im aktuellen LAN und filtert sie anhand der letzten vier MAC-Zeichen."
-release_note = "1.3.2: der Innenrahmen liegt bündig am Fensterrand, der helle Hintergrund ist weiß wie bei den integrierten Apps, und die Standardbreite beträgt 1040."
+release_note = "1.3.3: behebt die Überlappung der Symbolleiste in der vorherigen Standardbreite, setzt das Standardfenster auf 860x720 passend zum App Center, und die Kopieren/Exportieren-Schaltflächen umbrechen ohne den Filter zu überdecken."
 important = "Die App liest nur lokale Routing- und Nachbardaten und aendert keine Netzwerkeinstellungen."
 
 [it-it]
 name = "Localizzatore di rete"
 auth = "qishiyi"
 descript = "Trova i dispositivi nella LAN corrente e filtra per gli ultimi quattro caratteri dell'indirizzo MAC."
-release_note = "1.3.2: la cornice interna e a filo col bordo della finestra, lo sfondo chiaro diventa bianco come le app integrate, e la larghezza predefinita e 1040."
+release_note = "1.3.3: corregge la sovrapposizione della barra degli strumenti alla larghezza predefinita precedente, imposta la finestra predefinita a 860x720 come l'App Center, e i pulsanti copia/esporta vanno a capo senza coprire il filtro."
 important = "L'app legge solo routing e tabella dei vicini e non modifica la configurazione di rete."
 
 [es-es]
 name = "Localizador de red"
 auth = "qishiyi"
 descript = "Encuentra dispositivos en la LAN actual y filtra por los ultimos cuatro caracteres de su direccion MAC."
-release_note = "1.3.2: el marco interior queda pegado al borde de la ventana, el fondo claro pasa a blanco como las apps integradas, y el ancho predeterminado es 1040."
+release_note = "1.3.3: corrige la superposicion de la barra de herramientas en el ancho predeterminado anterior, establece la ventana predeterminada en 860x720 como el Centro de aplicaciones, y los botones copiar/exportar pasan de linea sin tapar el filtro."
 important = "La aplicacion solo lee el enrutamiento y la tabla de vecinos sin cambiar la configuracion de red."
 
 [hu-hu]
 name = "Hálózati lokalizáló"
 auth = "qishiyi"
 descript = "Megkeresi az aktuális LAN eszközeit, és a MAC-cím utolsó négy karaktere alapján szűri őket."
-release_note = "1.3.2: a belső keret a ablak széléhez simul, a világos háttér a beépített alkalmazások fehérjére vált, az alapértelmezett szélesség 1040."
+release_note = "1.3.3: javítja az eszköztár átfedését a korábbi alapértelmezett szélességnél, az alapértelmezett ablak 860×720 az alkalmazásközponthoz igazítva, a másolás/export gombok sort törnek és nem takarják a szűrőt."
 important = "Az alkalmazás csak helyi útvonal- és szomszédadatokat olvas, hálózati beállítást nem módosít."
 
 [ja-jp]
 name = "ネットワークロケーター"
 auth = "qishiyi"
 descript = "現在の LAN 上のデバイスを検出し、MAC アドレスの末尾 4 文字で絞り込みます。"
-release_note = "1.3.2：内側の枠をウィンドウ端まで寄せ、ライトテーマの背景を内蔵アプリに近い白にし、既定ウィンドウ幅を 1040 にしました。"
+release_note = "1.3.3：以前の既定幅でツールバーのボタンがフィルターに重なっていた問題を修正し、既定ウィンドウをアプリケーションセンターに近い 860×720 にし、狭い幅でもコピー/書き出しボタンは折り返してフィルターに重なりません。"
 important = "ローカルのルーティング情報と近隣テーブルのみを読み取り、ネットワーク設定は変更しません。"
 
 [ko-kr]
 name = "네트워크 로케이터"
 auth = "qishiyi"
 descript = "현재 LAN의 장치를 찾고 MAC 주소 마지막 네 문자로 빠르게 구분합니다."
-release_note = "1.3.2: 안쪽 테두리를 창 가장자리에 붙이고, 밝은 배경을 내장 앱과 같은 흰색으로 바꾸며, 기본 창 너비를 1040으로 맞췄습니다."
+release_note = "1.3.3: 이전 기본 너비에서 도구 모음 버튼이 필터와 겹치던 문제를 고치고, 기본 창을 앱 센터에 맞는 860×720으로 맞추며, 더 좁은 기본 너비에서도 복사/내보내기 버튼이 줄바꿈되어 필터를 가리지 않습니다."
 important = "앱은 로컬 라우팅과 이웃 테이블만 읽으며 네트워크 설정을 변경하지 않습니다."
 
 [pl-pl]
 name = "Lokalizator sieci"
 auth = "qishiyi"
 descript = "Znajduje urzadzenia w biezacej sieci LAN i filtruje je po czterech ostatnich znakach adresu MAC."
-release_note = "1.3.2: wewnetrzna ramka przylega do krawedzi okna, jasne tlo jest biale jak w wbudowanych aplikacjach, a domyslna szerokosc to 1040."
+release_note = "1.3.3: naprawia nakladanie sie paska narzedzi przy poprzedniej domyslnej szerokosci, ustawia domyslne okno na 860x720 jak w Centrum aplikacji, a przyciski kopiowania/eksportu zawijaja sie i nie zaslaniaja filtra."
 important = "Aplikacja tylko odczytuje lokalne trasy i tabele sasiadow, bez zmiany konfiguracji sieci."
 
 [ru-ru]
 name = "Сетевой локатор"
 auth = "qishiyi"
 descript = "Находит устройства в текущей локальной сети и фильтрует их по последним четырём символам MAC."
-release_note = "1.3.2: внутренняя рамка прижата к краю окна, светлый фон стал белым как у встроенных приложений, а ширина окна по умолчанию равна 1040."
+release_note = "1.3.3: исправлено наложение кнопок панели на фильтр при прежней ширине по умолчанию, окно по умолчанию стало 860×720 как у Центра приложений, а кнопки копирования/экспорта переносятся и не перекрывают фильтр."
 important = "Приложение только читает локальную маршрутизацию и таблицу соседей, не меняя настройки сети."
 
 [tr-tr]
 name = "Ağ Konum Bulucu"
 auth = "qishiyi"
 descript = "Geçerli LAN cihazlarını bulur ve MAC adresinin son dört karakterine göre filtreler."
-release_note = "1.3.2: ic cerceve pencere kenarina yaslandi, acik zemin yerlesik uygulamalar gibi beyaz oldu ve varsayilan pencere genisligi 1040 yapildi."
+release_note = "1.3.3: onceki varsayilan genislikteki arac cubugu cakismasini duzeltti, varsayilan pencereyi App Center ile uyumlu 860x720 yapti ve kopyala/disa aktar dugmeleri dar pencerede alt satira gecerek filtreyi kapatmaz."
 important = "Uygulama yalnızca yerel yönlendirme ve komşu verilerini okur, ağ ayarlarını değiştirmez."
 
 [pt-pt]
 name = "Localizador de rede"
 auth = "qishiyi"
 descript = "Encontra dispositivos na LAN atual e filtra pelos quatro ultimos caracteres do endereco MAC."
-release_note = "1.3.2: a moldura interior fica rente a borda da janela, o fundo claro passa a branco como nas apps integradas, e a largura predefinida e 1040."
+release_note = "1.3.3: corrige a sobreposicao da barra de ferramentas na largura predefinida anterior, define a janela predefinida para 860x720 como o Centro de aplicacoes, e os botoes copiar/exportar mudam de linha sem tapar o filtro."
 important = "A aplicacao apenas le o encaminhamento local e a tabela de vizinhos sem alterar a configuracao de rede."

@@ -21,7 +21,7 @@ class PackageContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertEqual(config["version"], version)
-        self.assertEqual(config["width"], 1040)
+        self.assertEqual(config["width"], 860)
         self.assertEqual(config["height"], 720)
         self.assertIn(f"Version: {version}", control)
         self.assertIn(f'__version__ = "{version}"', backend)
@@ -304,6 +304,77 @@ class PackageContractTests(unittest.TestCase):
         self.assertIn("suffixes", server)
         titlebar = html.split('class="titlebar-actions"', 1)[1].split("</header>", 1)[0]
         self.assertNotIn('id="themeToggle"', titlebar)
+
+    def test_default_window_layout_contract(self) -> None:
+        config = json.loads((ROOT / "config.ini").read_text(encoding="utf-8"))
+        styles = (ROOT / "frontend" / "styles.css").read_text(encoding="utf-8")
+        script = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+        self.assertEqual(config["width"], 860)
+        self.assertEqual(config["height"], 720)
+        self.assertTrue(config["resize"])
+        self.assertTrue(config["maxmin"])
+        self.assertRegex(styles, r"@media\s*\(\s*max-width:\s*980px\s*\)")
+        self.assertNotRegex(styles, r"@media\s*\(\s*max-width:\s*1040px\s*\)")
+        # The 860 default is intentionally below the 980 compact breakpoint
+        # and yields a workspace of about 560px, below WORKSPACE_NARROW_MAX_WIDTH.
+        # Do not assert that is-narrow is false at the default width.
+        self.assertLess(config["width"], 980)
+        self.assertIn("var WORKSPACE_NARROW_MAX_WIDTH = 680", script)
+        self.assertIn(
+            "width > 0 && width < WORKSPACE_NARROW_MAX_WIDTH",
+            script,
+        )
+        self.assertNotIn("width < 780", script)
+        default_sidebar = 304
+        resizer = 6
+        min_workspace = 560
+        workspace = max(
+            min_workspace,
+            int(config["width"]) - resizer - default_sidebar,
+        )
+        self.assertEqual(workspace, 560)
+        self.assertLess(workspace, 680)
+
+        def last_decl(selector: str, prop: str) -> str:
+            values = []
+            for block in re.findall(rf"{selector}\s*\{{([^}}]*)\}}", styles):
+                values.extend(
+                    value.strip()
+                    for value in re.findall(rf"{prop}:\s*([^;]+);", block)
+                )
+            self.assertTrue(values, selector + " " + prop)
+            return values[-1]
+
+        self.assertEqual(last_decl(r"\.workspace-header", "flex-shrink"), "0")
+        header_shrink = [
+            block
+            for block in re.findall(r"\.workspace-header\s*\{([^}]*)\}", styles)
+            if re.search(r"flex-shrink:\s*0", block)
+        ]
+        self.assertGreaterEqual(len(header_shrink), 3)
+        self.assertIsNone(re.search(r"\.table-filter\s*\{[^}]*flex-basis:\s*340px", styles))
+        self.assertRegex(
+            styles,
+            r"\.table-filter\s*\{[^}]*flex:\s*1 1 220px",
+        )
+        self.assertRegex(
+            styles,
+            r"\.table-filter\s*\{[^}]*min-width:\s*0",
+        )
+        self.assertRegex(
+            styles,
+            r"\.workspace\.is-narrow \.table-filter\s*\{[^}]*flex:\s*1 1 200px",
+        )
+        self.assertRegex(
+            styles,
+            r"\.table-toolbar\s*\{[^}]*flex-wrap:\s*wrap",
+        )
+        self.assertRegex(
+            styles,
+            r"\.workspace\.is-narrow \.table-toolbar\s*\{[^}]*flex-wrap:\s*wrap",
+        )
+
+
 
 
 if __name__ == "__main__":
