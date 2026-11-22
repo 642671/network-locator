@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.4 - 2026-11-23
+
+### 整改
+
+- 按 TerraMaster 审核意见补充包内隐私政策，并把 `config.ini` 的 `help` 指向公开的 `docs/PRIVACY.md`。
+- 卸载（remove 与 purge）时清理本应用目录、Unix socket、systemd unit 以及服务用户，不删除 `/var/api` 或用户数据盘。
+- `Depends` 仅保留 TOS 上更稳妥的 `python3 (>= 3.10), systemd`，不再声明可能在应用中心在线安装时无法满足的 `iproute2` / `iputils-ping`。扫描仍使用系统已有的 `ip` 与 `ping`。
+- `postinst` 增加 `adduser` 回退、用 Python 解压 `webui.bz2` 的备选路径，并将服务就绪等待延长到 45 秒，降低应用中心安装后服务未就绪的风险。
+
+### 验证
+
+- 后端单元测试与包契约测试。
+- 连续构建两次，`x86_64` 与 `aarch64` 的 `.deb` 字节分别保持一致，并核对 `dpkg-deb --info/--contents` 与 SHA256。
+
+
 ## 1.3.3 - 2026-11-22
 
 ### 修复

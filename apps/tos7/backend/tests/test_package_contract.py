@@ -87,12 +87,37 @@ class PackageContractTests(unittest.TestCase):
         self.assertNotIn("chmod 0770 /var/api", postinst)
         self.assertNotIn("apt install", postinst)
         self.assertIn('rm -rf "${APP_DIR}"', postrm)
+        self.assertIn("remove|purge", postrm)
+        self.assertIn('userdel "${APP_USER}"', postrm)
+        control_text = (ROOT / "DEBIAN" / "control").read_text(encoding="utf-8")
+        self.assertIn("Depends: python3 (>= 3.10), systemd", control_text)
+        self.assertNotIn("iproute2", control_text)
+        self.assertNotIn("iputils-ping", control_text)
 
     def test_preview_uses_package_version(self) -> None:
         preview = (ROOT / "tools" / "preview_server.py").read_text(encoding="utf-8")
         self.assertIn('APP_VERSION = (ROOT / "VERSION")', preview)
         self.assertIn("PREVIEW_VERSION = APP_VERSION", preview)
         self.assertNotRegex(preview, r'"\d+\.\d+\.\d+-preview"')
+
+
+    def test_privacy_policy_contract(self) -> None:
+        config = json.loads((ROOT / "config.ini").read_text(encoding="utf-8"))
+        policy = ROOT.parents[1] / "docs" / "PRIVACY.md"
+        self.assertTrue(policy.is_file())
+        self.assertIn("docs/PRIVACY.md", config["help"])
+        body = policy.read_text(encoding="utf-8")
+        self.assertIn("does not send", body.lower())
+        self.assertIn("/usr/local/network-locator", body)
+
+    def test_release_notes_avoid_forbidden_punctuation(self) -> None:
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.optionxform = str
+        parser.read_string((ROOT / "network-locator.lang").read_text(encoding="utf-8"))
+        for section in parser.sections():
+            note = parser[section]["release_note"].strip().strip('"')
+            self.assertNotIn(";", note, section)
+            self.assertNotIn("#", note, section)
 
     def test_icon_contract(self) -> None:
         config = json.loads((ROOT / "config.ini").read_text(encoding="utf-8"))
