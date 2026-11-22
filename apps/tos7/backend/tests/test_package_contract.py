@@ -21,6 +21,8 @@ class PackageContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertEqual(config["version"], version)
+        self.assertEqual(config["width"], 1040)
+        self.assertEqual(config["height"], 720)
         self.assertIn(f"Version: {version}", control)
         self.assertIn(f'__version__ = "{version}"', backend)
 
@@ -216,14 +218,15 @@ class PackageContractTests(unittest.TestCase):
             styles,
             r'html\[data-theme="dark"\] \.results-table th\s*\{[^}]*background:\s*rgba\(',
         )
-        self.assertRegex(styles, r"--window-frame:\s*12px")
+        self.assertRegex(styles, r"--window-frame:\s*0")
+        self.assertRegex(styles, r"--page-bg:\s*#ffffff")
         self.assertRegex(
             styles,
-            r"\.window-titlebar\s*\{[^}]*left:\s*var\(--window-frame\)",
+            r"\.window-titlebar\s*\{[^}]*left:\s*0",
         )
         self.assertRegex(
             styles,
-            r"body\s*\{[^}]*margin:\s*0\s*var\(--window-frame\)\s*var\(--window-frame\)",
+            r"body\s*\{[^}]*width:\s*100%",
         )
         for block in re.findall(r"\.window-titlebar\s*\{([^}]*)\}", styles):
             top = re.search(r"^\s*top:\s*([^;]+);", block, re.M)
@@ -232,6 +235,9 @@ class PackageContractTests(unittest.TestCase):
             right = re.search(r"^\s*right:\s*([^;]+);", block, re.M)
             if right:
                 self.assertEqual(right.group(1).strip(), "0")
+            left = re.search(r"^\s*left:\s*([^;]+);", block, re.M)
+            if left:
+                self.assertEqual(left.group(1).strip(), "0")
         self.assertRegex(
             styles,
             r"\.section-heading h1\s*\{[^}]*font-size:\s*14px",

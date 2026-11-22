@@ -3,7 +3,7 @@
 `network-locator` is a TOS 7 iframe Deb application for finding devices in the
 NAS's current physical LAN by the last four characters of their MAC address.
 
-Current version: `1.3.1`.
+Current version: `1.3.2`.
 
 Version 1.1.0 introduces the display name 网络定位 (Network Locator) and a new
 application identity: `network-locator` replaces the former `lan-mac-finder`

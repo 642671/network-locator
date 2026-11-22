@@ -2644,7 +2644,7 @@ body.has-modal {
 }
 /* === White glass and blue buttons (1.3.0) === */
 :root {
-  --page-bg: #eef1f6;
+  --page-bg: #ffffff;
   --glass: rgba(255, 255, 255, 0.76);
   --glass-strong: rgba(255, 255, 255, 0.9);
   --glass-soft: rgba(255, 255, 255, 0.52);
@@ -2678,7 +2678,7 @@ body.has-modal {
   --row-hover: rgba(37, 99, 235, 0.05);
   --row-selected: rgba(37, 99, 235, 0.1);
   --radius: 18px;
-  --window-frame: 12px;
+  --window-frame: 0;
 }
 
 html[data-theme="dark"] {
@@ -2718,14 +2718,12 @@ html[data-theme="dark"] {
 }
 
 body {
-  width: calc(100% - (2 * var(--window-frame)));
-  height: calc(100% - var(--window-frame));
-  margin: 0 var(--window-frame) var(--window-frame);
+  width: 100%;
+  height: 100%;
+  margin: 0;
   padding-top: var(--titlebar-height);
   border-radius: 0 0 var(--radius) var(--radius);
-  background:
-    radial-gradient(1200px 800px at 12% 8%, rgba(255, 255, 255, 0.7), transparent 60%),
-    linear-gradient(135deg, #f7f8fb 0%, #eef1f6 48%, #e8edf6 100%);
+  background: #ffffff;
   background-size: 100% 100%;
   animation: none;
 }
@@ -2748,10 +2746,10 @@ body::before {
 .window-titlebar {
   top: 0;
   right: 0;
-  left: var(--window-frame);
+  left: 0;
   border-top-left-radius: var(--radius);
   border-top-right-radius: 0;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.35));
+  background: #ffffff;
 }
 
 html[data-theme="dark"] .window-titlebar {

@@ -2,96 +2,96 @@
 name = "网络定位"
 auth = "qishiyi"
 descript = "发现当前局域网设备，读取网卡、IP、MAC 状态，并按 MAC 后四位快速定位设备。"
-release_note = "1.3.1：表头改为不透明实底，滚动时数据不再透出。窗口内侧增加内框以露出圆角，粗体标题再次缩小并保持较轻字重。"
+release_note = "1.3.2：应用内侧边框收到贴边，浅色底改为贴近内置应用的白色，默认窗口宽度调整为 1040。"
 important = "扫描只读取本机路由和邻居表，不会更改 NAS 或其他设备的网络配置。"
 
 [zh-hk]
 name = "網絡定位"
 auth = "qishiyi"
 descript = "搜尋目前區域網絡裝置，讀取網卡、IP、MAC 狀態，並按 MAC 尾四位定位裝置。"
-release_note = "1.3.1：表頭改為不透明實底，捲動時資料不再透出。視窗內側增加內框以露出圓角，粗體標題再次縮小並保持較輕字重。"
+release_note = "1.3.2：應用內側邊框收到貼邊，淺色底改為貼近內置應用的白色，預設視窗寬度調整為 1040。"
 important = "掃描只讀取本機路由和鄰居表，不會更改 NAS 或其他裝置的網絡設定。"
 
 [en-us]
 name = "Network Locator"
 auth = "qishiyi"
 descript = "Find devices on the current LAN and match the last four MAC characters with live interface and neighbor data."
-release_note = "1.3.1: make the table header fully opaque so row data no longer shows through, add an inner window frame so the rounded card is visible, and reduce the bold titles again to a lighter smaller size."
+release_note = "1.3.2: pull the inner frame flush to the window edge, use a built-in-app white background in light theme, and set the default window width to 1040."
 important = "The app only reads local routing and neighbor data. It never changes NAS or device network settings."
 
 [fr-fr]
 name = "Localisateur réseau"
 auth = "qishiyi"
 descript = "Trouvez les appareils du reseau local et filtrez-les par les quatre derniers caracteres de leur adresse MAC."
-release_note = "1.3.1 : en-tete de tableau totalement opaque, cadre interieur pour laisser voir les coins arrondis, et titres en gras encore reduits avec un poids plus leger."
+release_note = "1.3.2 : le cadre interieur est colle au bord de la fenetre, le fond clair devient blanc comme les apps integrees, et la largeur par defaut passe a 1040."
 important = "L'application lit uniquement le routage local et la table voisine, sans modifier la configuration reseau."
 
 [de-de]
 name = "Netzwerk-Locator"
 auth = "qishiyi"
 descript = "Findet Geraete im aktuellen LAN und filtert sie anhand der letzten vier MAC-Zeichen."
-release_note = "1.3.1: der Tabellenkopf ist vollständig undurchsichtig, ein Innenrahmen macht die runden Ecken sichtbar, und die fetten Titel wurden erneut verkleinert und leichter gemacht."
+release_note = "1.3.2: der Innenrahmen liegt bündig am Fensterrand, der helle Hintergrund ist weiß wie bei den integrierten Apps, und die Standardbreite beträgt 1040."
 important = "Die App liest nur lokale Routing- und Nachbardaten und aendert keine Netzwerkeinstellungen."
 
 [it-it]
 name = "Localizzatore di rete"
 auth = "qishiyi"
 descript = "Trova i dispositivi nella LAN corrente e filtra per gli ultimi quattro caratteri dell'indirizzo MAC."
-release_note = "1.3.1: intestazione della tabella opaca, cornice interna per mostrare gli angoli arrotondati, e titoli in grassetto ulteriormente ridotti e piu leggeri."
+release_note = "1.3.2: la cornice interna e a filo col bordo della finestra, lo sfondo chiaro diventa bianco come le app integrate, e la larghezza predefinita e 1040."
 important = "L'app legge solo routing e tabella dei vicini e non modifica la configurazione di rete."
 
 [es-es]
 name = "Localizador de red"
 auth = "qishiyi"
 descript = "Encuentra dispositivos en la LAN actual y filtra por los ultimos cuatro caracteres de su direccion MAC."
-release_note = "1.3.1: la cabecera de la tabla es opaca, un marco interior deja ver las esquinas redondeadas, y los titulos en negrita se reducen otra vez y quedan mas ligeros."
+release_note = "1.3.2: el marco interior queda pegado al borde de la ventana, el fondo claro pasa a blanco como las apps integradas, y el ancho predeterminado es 1040."
 important = "La aplicacion solo lee el enrutamiento y la tabla de vecinos sin cambiar la configuracion de red."
 
 [hu-hu]
 name = "Hálózati lokalizáló"
 auth = "qishiyi"
 descript = "Megkeresi az aktuális LAN eszközeit, és a MAC-cím utolsó négy karaktere alapján szűri őket."
-release_note = "1.3.1: a táblázatfejléc teljesen átlátszatlan, egy belső keret mutatja a lekerekített sarkokat, a félkövér címek pedig ismét kisebbek és könnyebbek."
+release_note = "1.3.2: a belső keret a ablak széléhez simul, a világos háttér a beépített alkalmazások fehérjére vált, az alapértelmezett szélesség 1040."
 important = "Az alkalmazás csak helyi útvonal- és szomszédadatokat olvas, hálózati beállítást nem módosít."
 
 [ja-jp]
 name = "ネットワークロケーター"
 auth = "qishiyi"
 descript = "現在の LAN 上のデバイスを検出し、MAC アドレスの末尾 4 文字で絞り込みます。"
-release_note = "1.3.1：表の見出しを不透明にし、内側の枠で角丸を見えるようにし、太字の見出しをさらに小さく、字重は軽く保ちました。"
+release_note = "1.3.2：内側の枠をウィンドウ端まで寄せ、ライトテーマの背景を内蔵アプリに近い白にし、既定ウィンドウ幅を 1040 にしました。"
 important = "ローカルのルーティング情報と近隣テーブルのみを読み取り、ネットワーク設定は変更しません。"
 
 [ko-kr]
 name = "네트워크 로케이터"
 auth = "qishiyi"
 descript = "현재 LAN의 장치를 찾고 MAC 주소 마지막 네 문자로 빠르게 구분합니다."
-release_note = "1.3.1: 표 머리글을 불투명하게 하고, 안쪽 테두리로 둥근 모서리가 보이게 하며, 굵은 제목을 다시 줄이고 두께는 가볍게 유지했습니다."
+release_note = "1.3.2: 안쪽 테두리를 창 가장자리에 붙이고, 밝은 배경을 내장 앱과 같은 흰색으로 바꾸며, 기본 창 너비를 1040으로 맞췄습니다."
 important = "앱은 로컬 라우팅과 이웃 테이블만 읽으며 네트워크 설정을 변경하지 않습니다."
 
 [pl-pl]
 name = "Lokalizator sieci"
 auth = "qishiyi"
 descript = "Znajduje urzadzenia w biezacej sieci LAN i filtruje je po czterech ostatnich znakach adresu MAC."
-release_note = "1.3.1: naglowek tabeli jest nieprzezroczysty, wewnetrzna ramka odslania zaokraglone rogi, a pogrubione tytuly zostaly ponownie zmniejszone i sa lzejsze."
+release_note = "1.3.2: wewnetrzna ramka przylega do krawedzi okna, jasne tlo jest biale jak w wbudowanych aplikacjach, a domyslna szerokosc to 1040."
 important = "Aplikacja tylko odczytuje lokalne trasy i tabele sasiadow, bez zmiany konfiguracji sieci."
 
 [ru-ru]
 name = "Сетевой локатор"
 auth = "qishiyi"
 descript = "Находит устройства в текущей локальной сети и фильтрует их по последним четырём символам MAC."
-release_note = "1.3.1: заголовок таблицы стал непрозрачным, внутренняя рамка показывает скруглённые углы, а жирные заголовки снова уменьшены и остаются более лёгкими."
+release_note = "1.3.2: внутренняя рамка прижата к краю окна, светлый фон стал белым как у встроенных приложений, а ширина окна по умолчанию равна 1040."
 important = "Приложение только читает локальную маршрутизацию и таблицу соседей, не меняя настройки сети."
 
 [tr-tr]
 name = "Ağ Konum Bulucu"
 auth = "qishiyi"
 descript = "Geçerli LAN cihazlarını bulur ve MAC adresinin son dört karakterine göre filtreler."
-release_note = "1.3.1: tablo basligi artik mat, ic cerceve yuvarlatilmis koseleri gosterir ve kalin basliklar bir kez daha kucultulup hafif tutuldu."
+release_note = "1.3.2: ic cerceve pencere kenarina yaslandi, acik zemin yerlesik uygulamalar gibi beyaz oldu ve varsayilan pencere genisligi 1040 yapildi."
 important = "Uygulama yalnızca yerel yönlendirme ve komşu verilerini okur, ağ ayarlarını değiştirmez."
 
 [pt-pt]
 name = "Localizador de rede"
 auth = "qishiyi"
 descript = "Encontra dispositivos na LAN atual e filtra pelos quatro ultimos caracteres do endereco MAC."
-release_note = "1.3.1: o cabecalho da tabela fica opaco, uma moldura interior mostra os cantos arredondados, e os titulos em negrito sao reduzidos outra vez e ficam mais leves."
+release_note = "1.3.2: a moldura interior fica rente a borda da janela, o fundo claro passa a branco como nas apps integradas, e a largura predefinida e 1040."
 important = "A aplicacao apenas le o encaminhamento local e a tabela de vizinhos sem alterar a configuracao de rede."
