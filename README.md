@@ -28,7 +28,7 @@ accepted.
 - **Published.** The repository is public at
   `https://github.com/642671/network-locator`; releases `v1.1.0-r2` and
   `v1.2.0`, `v1.3.0`, `v1.3.1` and `v1.3.2` carry the x86_64 and aarch64 Debs and SHA256 sidecars.
-  `v1.3.4` added an in-package [privacy policy](docs/PRIVACY.md), cleaner uninstall of application data and the service user, and packaging fixes for App Center installation. `v1.3.5` is the current candidate: it opens at 1040x760 with a new network-range column, widens the saved-device "add first" hover target, and removes the stray resize dots that rendered at the top-left corner.
+  `v1.3.4` added an in-package [privacy policy](docs/PRIVACY.md), cleaner uninstall of application data and the service user, and packaging fixes for App Center installation. `v1.3.5` added a sortable network-range column, opened at 1040x760, widened the add-first hover target, and removed the stray resize dots. `v1.3.6` opens at 1180x720, shows the interface name (eth0) as the first table column, and tightens the UI density.
 - **TDP:** App `network-locator` is registered (platform `x86_64`) and version
   `1.1.0` was submitted on 2026-11-21. It is currently in platform review
   (`status=0`). `1.2.x` will be submitted after that review ends.
@@ -49,7 +49,7 @@ accepted.
 | Socket | `/var/api/network-locator.sock` |
 | Runtime user | `network-locator` |
 | Package root | `/usr/local/network-locator/` |
-| Version | `1.3.5` |
+| Version | `1.3.6` |
 
 The old `lan-mac-finder` package is not upgraded by this build; installing it
 alongside is possible only because every path, user, socket, and unit name

@@ -11,7 +11,7 @@ var NETWORK_FRESHNESS_MS = 5000;
 var SIDEBAR_WIDTH_KEY = "networkLocator.layout.sidebarWidth.v1";
 var SCAN_PANE_HEIGHT_KEY = "networkLocator.layout.scanPaneHeight.v1";
 var DEFAULT_SIDEBAR_WIDTH = 304;
-var DEFAULT_SCAN_PANE_HEIGHT = 430;
+var DEFAULT_SCAN_PANE_HEIGHT = 390;
 var MIN_SIDEBAR_WIDTH = 280;
 var MAX_SIDEBAR_WIDTH = 560;
 var MIN_WORKSPACE_WIDTH = 560;
@@ -2338,6 +2338,18 @@ function paintTableRows(preserveSelection) {
     });
     selectCell.appendChild(checkbox);
 
+    var networkCell = document.createElement("td");
+    networkCell.className = "mono-value network-cell";
+    networkCell.textContent = result.interface || "--";
+    networkCell.title = result.interface
+      ? result.interface + (result.scan_range ? " · " + result.scan_range : " · 未知网段")
+      : String(result.scan_range || "未知网段");
+    networkCell.setAttribute(
+      "aria-label",
+      "网段 " + String(result.interface || "未知") +
+        (result.scan_range ? "，网段 " + result.scan_range : "")
+    );
+
     var ipCell = document.createElement("td");
     ipCell.className = "mono-value ip-cell";
     var ipUrl = deviceWebUrl(result.ip);
@@ -2401,18 +2413,6 @@ function paintTableRows(preserveSelection) {
     });
     macCell.appendChild(macButton);
 
-    var networkCell = document.createElement("td");
-    networkCell.className = "mono-value network-cell";
-    networkCell.textContent = result.scan_range || "--";
-    networkCell.title = result.interface
-      ? result.interface + (result.scan_range ? " · " + result.scan_range : " · 未知网段")
-      : String(result.scan_range || "未知网段");
-    networkCell.setAttribute(
-      "aria-label",
-      "网段 " + String(result.scan_range || "未知") +
-        (result.interface ? "，接口 " + result.interface : "")
-    );
-
     var targetCell = document.createElement("td");
     targetCell.className = "target-column";
     var matchedSuffixes = Array.isArray(result.matched_suffixes)
@@ -2461,9 +2461,9 @@ function paintTableRows(preserveSelection) {
     actionsCell.appendChild(copyMac);
 
     row.appendChild(selectCell);
+    row.appendChild(networkCell);
     row.appendChild(ipCell);
     row.appendChild(macCell);
-    row.appendChild(networkCell);
     row.appendChild(targetCell);
     row.appendChild(stateCell);
     row.appendChild(actionsCell);

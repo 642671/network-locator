@@ -234,6 +234,18 @@ test("device table sorts by network range", () => {
   );
 });
 
+test("device table sorts by interface", () => {
+  const items = [
+    { interface: "eth1", scan_range: "192.0.2.0/24", ip: "192.0.2.2" },
+    { interface: "eth0", scan_range: "198.51.100.0/24", ip: "198.51.100.2" },
+    { interface: "eth10", scan_range: "10.0.0.0/16", ip: "10.0.0.2" }
+  ];
+  assert.deepEqual(
+    context.sortTableRows(items, "interface", "ascending").map((item) => item.interface),
+    ["eth0", "eth1", "eth10"]
+  );
+});
+
 test("device web links are limited to valid IPv4 addresses", () => {
   assert.equal(context.deviceWebUrl("192.0.2.19"), "http://192.0.2.19/");
   assert.equal(context.deviceWebUrl(" 198.51.100.1 "), "http://198.51.100.1/");

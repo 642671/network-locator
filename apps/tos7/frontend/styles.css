@@ -2,7 +2,7 @@
   color-scheme: light;
   --titlebar-height: 56px;
   --sidebar-width: 304px;
-  --scan-pane-height: 430px;
+  --scan-pane-height: 390px;
   --panel-resizer-size: 10px;
   --page-bg: #dcebed;
   --glass: rgba(255, 255, 255, 0.3);
@@ -2798,23 +2798,23 @@ html[data-theme="dark"] .results-table th {
   font-size: 12.5px;
 }
 
-/* Seven columns: select, IP, MAC, network, target (optional), state, actions.
+/* Seven columns: select, network, IP, MAC, target (optional), state, actions.
    Percentages sum to 100% so the fixed layout never has leftover space. */
-.results-table .select-column { width: 7%; }
-.results-table th[data-sort-key="ip"] { width: 20%; }
-.results-table th[data-sort-key="mac"] { width: 21%; }
-.results-table th.network-column { width: 21%; }
+.results-table .select-column { width: 6%; }
+.results-table th.network-column { width: 12%; }
+.results-table th[data-sort-key="ip"] { width: 24%; }
+.results-table th[data-sort-key="mac"] { width: 25%; }
 .results-table th.target-column { width: 0; }
-.results-table th[data-sort-key="state"] { width: 12%; }
+.results-table th[data-sort-key="state"] { width: 14%; }
 .results-table .actions-column { width: 19%; text-align: center; }
 
-.results-table.has-target-column .select-column { width: 7%; }
-.results-table.has-target-column th[data-sort-key="ip"] { width: 16%; }
-.results-table.has-target-column th[data-sort-key="mac"] { width: 17%; }
-.results-table.has-target-column th.network-column { width: 16%; }
-.results-table.has-target-column th.target-column { width: 13%; }
-.results-table.has-target-column th[data-sort-key="state"] { width: 12%; }
-.results-table.has-target-column .actions-column { width: 19%; }
+.results-table.has-target-column .select-column { width: 6%; }
+.results-table.has-target-column th.network-column { width: 10%; }
+.results-table.has-target-column th[data-sort-key="ip"] { width: 18%; }
+.results-table.has-target-column th[data-sort-key="mac"] { width: 19%; }
+.results-table.has-target-column th.target-column { width: 14%; }
+.results-table.has-target-column th[data-sort-key="state"] { width: 13%; }
+.results-table.has-target-column .actions-column { width: 20%; }
 
 .results-table td.select-cell { padding-left: 16px; }
 .results-table td.actions-cell { text-align: center; }
@@ -3072,16 +3072,16 @@ html[data-theme="dark"] .secondary-button {
 /* Keep the remaining narrow columns summing to 100% so the fixed layout has
    no slack to dump into the checkbox column. */
 .workspace.is-narrow .results-table th:nth-child(1) { width: 8%; }
-.workspace.is-narrow .results-table th:nth-child(2) { width: 24%; }
-.workspace.is-narrow .results-table th:nth-child(3) { width: 27%; }
-.workspace.is-narrow .results-table th:nth-child(4) { width: 27%; }
+.workspace.is-narrow .results-table th:nth-child(2) { width: 16%; }
+.workspace.is-narrow .results-table th:nth-child(3) { width: 25%; }
+.workspace.is-narrow .results-table th:nth-child(4) { width: 28%; }
 .workspace.is-narrow .results-table th:nth-child(5) { width: 0; }
-.workspace.is-narrow .results-table th:nth-child(6) { width: 14%; }
-.workspace.is-narrow .results-table.has-target-column th:nth-child(2) { width: 18%; }
+.workspace.is-narrow .results-table th:nth-child(6) { width: 23%; }
+.workspace.is-narrow .results-table.has-target-column th:nth-child(2) { width: 13%; }
 .workspace.is-narrow .results-table.has-target-column th:nth-child(3) { width: 20%; }
-.workspace.is-narrow .results-table.has-target-column th:nth-child(4) { width: 20%; }
-.workspace.is-narrow .results-table.has-target-column th:nth-child(5) { width: 18%; }
-.workspace.is-narrow .results-table.has-target-column th:nth-child(6) { width: 16%; }
+.workspace.is-narrow .results-table.has-target-column th:nth-child(4) { width: 22%; }
+.workspace.is-narrow .results-table.has-target-column th:nth-child(5) { width: 17%; }
+.workspace.is-narrow .results-table.has-target-column th:nth-child(6) { width: 20%; }
 
 .state-chip {
   min-width: 62px;
@@ -3192,4 +3192,267 @@ html[data-theme="dark"] .secondary-button {
 .resize-safety-corner {
   right: var(--window-frame);
   bottom: var(--window-frame);
+}
+
+/* === 1.3.6 compact density: smaller buttons, fonts, and frame === */
+:root {
+  --radius: 14px;
+}
+
+.window-brand {
+  gap: 7px;
+  font-size: 13px;
+}
+
+.brand-icon {
+  width: 19px;
+  height: 19px;
+  border-radius: 5px;
+}
+
+.backend-badge {
+  gap: 6px;
+  padding: 4px 9px;
+  font-size: 10.5px;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+}
+
+.control-section {
+  padding: 18px;
+}
+
+.section-heading h1 {
+  font-size: 13px;
+}
+
+.section-row h2 {
+  font-size: 13px;
+}
+
+.section-kicker {
+  font-size: 9.5px;
+}
+
+.section-heading p {
+  margin-top: 5px;
+  font-size: 11px;
+}
+
+.field-label {
+  margin-bottom: 6px;
+  font-size: 11.5px;
+}
+
+.field-label-row {
+  margin-bottom: 6px;
+}
+
+.scan-form {
+  margin-top: 14px;
+}
+
+.input-shell {
+  height: 38px;
+}
+
+.input-shell > svg {
+  width: 16px;
+  height: 16px;
+  margin-left: 10px;
+}
+
+.input-shell input {
+  padding: 0 10px 0 8px;
+  font-size: 14px;
+}
+
+.input-shell input::placeholder {
+  font-size: 12px;
+}
+
+.add-suffix-button {
+  height: 24px;
+  padding: 0 8px;
+  gap: 4px;
+  font-size: 10.5px;
+}
+
+.add-suffix-button svg {
+  width: 11px;
+  height: 11px;
+}
+
+.primary-button,
+.secondary-button {
+  height: 36px;
+  padding: 0 12px;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.primary-button svg,
+.secondary-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.icon-button {
+  width: 30px;
+  height: 30px;
+}
+
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.workspace-icon-button {
+  width: 36px;
+  height: 36px;
+}
+
+.text-button {
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 11.5px;
+}
+
+.scan-actions {
+  grid-template-columns: minmax(0, 1fr) 84px;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.stop-button {
+  width: 84px;
+}
+
+.scan-state {
+  min-height: 42px;
+  margin-top: 12px;
+  padding: 8px 10px;
+}
+
+.scan-state strong {
+  font-size: 11.5px;
+}
+
+.scan-state p {
+  font-size: 10.5px;
+}
+
+.network-summary {
+  margin-top: 9px;
+  font-size: 10.5px;
+}
+
+.network-select-all {
+  padding: 4px 7px;
+  font-size: 9.5px;
+}
+
+.network-item {
+  grid-template-columns: 15px 28px minmax(0, 1fr) auto;
+  min-height: 54px;
+  padding: 7px 0;
+}
+
+.network-checkbox {
+  width: 14px;
+  height: 14px;
+}
+
+.network-item-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.network-item-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.sidebar-footer {
+  min-height: 32px;
+  font-size: 9.5px;
+}
+
+.workspace-header {
+  min-height: 54px;
+  padding: 0 16px;
+  gap: 14px;
+}
+
+.workspace-heading p {
+  margin-top: 3px;
+  font-size: 10.5px;
+}
+
+.count-badge {
+  min-width: 24px;
+  height: 20px;
+  padding: 0 7px;
+  font-size: 10px;
+}
+
+.table-toolbar {
+  min-height: 46px;
+  padding: 6px 16px;
+  gap: 10px;
+}
+
+.table-filter input {
+  height: 30px;
+  padding: 0 34px 0 29px;
+  font-size: 11.5px;
+}
+
+.table-filter > svg {
+  left: 10px;
+  width: 13px;
+  height: 13px;
+}
+
+.results-table th {
+  height: 38px;
+  font-size: 10.5px;
+}
+
+.sort-button {
+  height: 38px;
+  padding: 0 10px;
+}
+
+.results-table td {
+  height: 42px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.state-chip {
+  min-width: 66px;
+  height: 22px;
+  padding: 0 7px;
+  font-size: 9.5px;
+}
+
+.row-action {
+  padding: 2px 5px;
+  font-size: 11.5px;
+}
+
+.workspace-footer {
+  min-height: 34px;
+  padding-right: 24px;
+  font-size: 10px;
+}
+
+.target-chip {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 9.5px;
 }
