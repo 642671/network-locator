@@ -1547,7 +1547,7 @@ html[data-theme="dark"] .table-toolbar {
 
 .results-table {
   width: 100%;
-  min-width: 700px;
+  min-width: 660px;
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
@@ -1614,64 +1614,12 @@ html[data-theme="dark"] .table-toolbar {
   opacity: 1;
 }
 
-.results-table th:nth-child(1) {
-  width: 16%;
-}
-
-.results-table th:nth-child(2) {
-  width: 20%;
-}
-
-.results-table th:nth-child(3) {
-  width: 22%;
-}
-
-.results-table th:nth-child(4) {
-  width: 25%;
-}
-
-.results-table th:nth-child(5) {
-  width: 0;
-}
-
-.results-table th:nth-child(6) {
-  width: 17%;
-}
-
 .results-table .target-column {
   display: none;
 }
 
-.results-table.has-target-column {
-  min-width: 840px;
-}
-
 .results-table.has-target-column .target-column {
   display: table-cell;
-}
-
-.results-table.has-target-column th:nth-child(1) {
-  width: 14%;
-}
-
-.results-table.has-target-column th:nth-child(2) {
-  width: 17%;
-}
-
-.results-table.has-target-column th:nth-child(3) {
-  width: 18%;
-}
-
-.results-table.has-target-column th:nth-child(4) {
-  width: 21%;
-}
-
-.results-table.has-target-column th:nth-child(5) {
-  width: 15%;
-}
-
-.results-table.has-target-column th:nth-child(6) {
-  width: 15%;
 }
 
 .target-tag {
@@ -2013,10 +1961,8 @@ html[data-theme="dark"] .workspace-footer {
   }
 }
 
-/* Compact layout must stay strictly below the old 1040px default.
-   The current default window is 860px, which is intended to use this
-   wrapping compact layout. 1039px is not a safe gap, so the breakpoint
-   is 980px. */
+/* The default 1040px window keeps the full desktop layout. This compact,
+   wrapping layout applies to user-shrunk windows at or below 980px. */
 @media (max-width: 980px) {
   :root {
     --sidebar-width: 284px;
@@ -2852,21 +2798,24 @@ html[data-theme="dark"] .results-table th {
   font-size: 12.5px;
 }
 
-.results-table th:nth-child(1) { width: 44px; }
-.results-table th:nth-child(2) { width: 28%; }
-.results-table th:nth-child(3) { width: 28%; }
-.results-table th:nth-child(4) { width: 0; }
-.results-table th:nth-child(5) { width: 14%; }
-.results-table th:nth-child(6) { width: 150px; }
+/* Seven columns: select, IP, MAC, network, target (optional), state, actions.
+   Percentages sum to 100% so the fixed layout never has leftover space. */
+.results-table .select-column { width: 7%; }
+.results-table th[data-sort-key="ip"] { width: 20%; }
+.results-table th[data-sort-key="mac"] { width: 21%; }
+.results-table th.network-column { width: 21%; }
+.results-table th.target-column { width: 0; }
+.results-table th[data-sort-key="state"] { width: 12%; }
+.results-table .actions-column { width: 19%; text-align: center; }
 
-.results-table.has-target-column th:nth-child(2) { width: 24%; }
-.results-table.has-target-column th:nth-child(3) { width: 24%; }
-.results-table.has-target-column th:nth-child(4) { width: 16%; }
-.results-table.has-target-column th:nth-child(5) { width: 12%; }
-.results-table.has-target-column th:nth-child(6) { width: 150px; }
+.results-table.has-target-column .select-column { width: 7%; }
+.results-table.has-target-column th[data-sort-key="ip"] { width: 16%; }
+.results-table.has-target-column th[data-sort-key="mac"] { width: 17%; }
+.results-table.has-target-column th.network-column { width: 16%; }
+.results-table.has-target-column th.target-column { width: 13%; }
+.results-table.has-target-column th[data-sort-key="state"] { width: 12%; }
+.results-table.has-target-column .actions-column { width: 19%; }
 
-.results-table .select-column { width: 44px; }
-.results-table .actions-column { width: 168px; text-align: center; }
 .results-table td.select-cell { padding-left: 16px; }
 .results-table td.actions-cell { text-align: center; }
 
@@ -2917,7 +2866,8 @@ html[data-theme="dark"] .results-table th {
 }
 
 .section-empty-hint .text-button {
-  padding: 0;
+  min-height: 28px;
+  padding: 0 11px;
   color: var(--accent);
   font-size: 12px;
 }
@@ -3108,8 +3058,30 @@ html[data-theme="dark"] .secondary-button {
 }
 
 .workspace.is-narrow .results-table {
-  min-width: 600px;
+  min-width: 0;
 }
+
+/* When the window is shrunk, hide the per-row action column so IP, MAC,
+   network and state stay fully visible; clicking the IP opens it, clicking
+   the MAC copies it, and the toolbar keeps batch copy. */
+.workspace.is-narrow .results-table th.actions-column,
+.workspace.is-narrow .results-table td.actions-cell {
+  display: none;
+}
+
+/* Keep the remaining narrow columns summing to 100% so the fixed layout has
+   no slack to dump into the checkbox column. */
+.workspace.is-narrow .results-table th:nth-child(1) { width: 8%; }
+.workspace.is-narrow .results-table th:nth-child(2) { width: 24%; }
+.workspace.is-narrow .results-table th:nth-child(3) { width: 27%; }
+.workspace.is-narrow .results-table th:nth-child(4) { width: 27%; }
+.workspace.is-narrow .results-table th:nth-child(5) { width: 0; }
+.workspace.is-narrow .results-table th:nth-child(6) { width: 14%; }
+.workspace.is-narrow .results-table.has-target-column th:nth-child(2) { width: 18%; }
+.workspace.is-narrow .results-table.has-target-column th:nth-child(3) { width: 20%; }
+.workspace.is-narrow .results-table.has-target-column th:nth-child(4) { width: 20%; }
+.workspace.is-narrow .results-table.has-target-column th:nth-child(5) { width: 18%; }
+.workspace.is-narrow .results-table.has-target-column th:nth-child(6) { width: 16%; }
 
 .state-chip {
   min-width: 62px;
@@ -3221,32 +3193,3 @@ html[data-theme="dark"] .secondary-button {
   right: var(--window-frame);
   bottom: var(--window-frame);
 }
-
-.window-resize-grip {
-  position: fixed;
-  right: calc(var(--window-frame) + 7px);
-  bottom: calc(var(--window-frame) + 7px);
-  z-index: 10000;
-  display: grid;
-  grid-template-columns: repeat(3, 4px);
-  grid-template-rows: repeat(3, 4px);
-  gap: 3px;
-  width: 18px;
-  height: 18px;
-  pointer-events: none;
-}
-
-.window-resize-grip span {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--muted);
-  opacity: 0.7;
-}
-
-.window-resize-grip span:nth-child(1) { grid-column: 3; grid-row: 1; }
-.window-resize-grip span:nth-child(2) { grid-column: 2; grid-row: 2; }
-.window-resize-grip span:nth-child(3) { grid-column: 3; grid-row: 2; }
-.window-resize-grip span:nth-child(4) { grid-column: 1; grid-row: 3; }
-.window-resize-grip span:nth-child(5) { grid-column: 2; grid-row: 3; }
-.window-resize-grip span:nth-child(6) { grid-column: 3; grid-row: 3; }

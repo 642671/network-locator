@@ -222,6 +222,18 @@ test("visible table rows combine filtering and sorting", () => {
   context.state.tableSortDirection = "ascending";
 });
 
+test("device table sorts by network range", () => {
+  const items = [
+    { scan_range: "198.51.100.0/24", ip: "198.51.100.2" },
+    { scan_range: "192.0.2.0/24", ip: "192.0.2.2" },
+    { scan_range: "10.0.0.0/16", ip: "10.0.0.2" }
+  ];
+  assert.deepEqual(
+    context.sortTableRows(items, "scan_range", "ascending").map((item) => item.scan_range),
+    ["10.0.0.0/16", "192.0.2.0/24", "198.51.100.0/24"]
+  );
+});
+
 test("device web links are limited to valid IPv4 addresses", () => {
   assert.equal(context.deviceWebUrl("192.0.2.19"), "http://192.0.2.19/");
   assert.equal(context.deviceWebUrl(" 198.51.100.1 "), "http://198.51.100.1/");

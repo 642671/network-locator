@@ -2,96 +2,96 @@
 name = "网络定位"
 auth = "qishiyi"
 descript = "发现当前局域网设备，读取网卡、IP、MAC 状态，并按 MAC 后四位快速定位设备。"
-release_note = "1.3.4：按审核意见整改。包内增加隐私政策，卸载时清理本应用配置、数据和服务用户，并去掉可能妨碍应用中心在线安装的额外软件包依赖。"
+release_note = "1.3.5：默认窗口调整为 1040×760，设备总表新增可排序的网段列，「添加第一个」按钮悬浮底色加宽，并移除左上角误显示的拖拽点。"
 important = "扫描只读取本机路由和邻居表，不会更改 NAS 或其他设备的网络配置。"
 
 [zh-hk]
 name = "網絡定位"
 auth = "qishiyi"
 descript = "搜尋目前區域網絡裝置，讀取網卡、IP、MAC 狀態，並按 MAC 尾四位定位裝置。"
-release_note = "1.3.4：按審核意見整改。套件內增加私隱政策，解除安裝時清理本應用配置、數據和服務用戶，並去掉可能妨礙應用中心線上安裝的額外套件依賴。"
+release_note = "1.3.5：預設視窗調整為 1040×760，裝置總表新增可排序的網段欄，「添加第一個」按鈕懸浮底色加寬，並移除左上角誤顯示的拖曳點。"
 important = "掃描只讀取本機路由和鄰居表，不會更改 NAS 或其他裝置的網絡設定。"
 
 [en-us]
 name = "Network Locator"
 auth = "qishiyi"
 descript = "Find devices on the current LAN and match the last four MAC characters with live interface and neighbor data."
-release_note = "1.3.4: Rectified per review comments. Add an in-package privacy policy, remove app data and the service user on uninstall, and drop extra package depends that can block App Center installation on TOS."
+release_note = "1.3.5: Default window 1040x760, add a sortable network-range column, widen the add-first hover target, and remove the stray drag dots at the top-left corner."
 important = "The app only reads local routing and neighbor data. It never changes NAS or device network settings."
 
 [fr-fr]
 name = "Localisateur réseau"
 auth = "qishiyi"
 descript = "Trouvez les appareils du reseau local et filtrez-les par les quatre derniers caracteres de leur adresse MAC."
-release_note = "1.3.4: Rectified per review comments. Ajoute une politique de confidentialite dans le paquet, supprime les donnees et l'utilisateur de service a la desinstallation, et retire des dependances de paquets qui peuvent bloquer l'installation du Centre d'applications."
+release_note = "1.3.5: Fenetre par defaut 1040x760, colonne reseau triable, fond de survol du bouton d'ajout elargi et suppression des points de deplacement en haut a gauche."
 important = "L'application lit uniquement le routage local et la table voisine, sans modifier la configuration reseau."
 
 [de-de]
 name = "Netzwerk-Locator"
 auth = "qishiyi"
 descript = "Findet Geraete im aktuellen LAN und filtert sie anhand der letzten vier MAC-Zeichen."
-release_note = "1.3.4: Rectified per review comments. Fuegt eine Datenschutzrichtlinie im Paket hinzu, entfernt App-Daten und den Dienstbenutzer bei der Deinstallation, und streicht zusaetzliche Paketabhaengigkeiten, die die App-Center-Installation blockieren koennen."
+release_note = "1.3.5: Standardfenster 1040x760, sortierbare Netzwerk-Spalte, breiterer Hover-Hintergrund fuer die Schaltflaeche zum ersten Hinzufuegen und keine falschen Ziehpunkte mehr oben links."
 important = "Die App liest nur lokale Routing- und Nachbardaten und aendert keine Netzwerkeinstellungen."
 
 [it-it]
 name = "Localizzatore di rete"
 auth = "qishiyi"
 descript = "Trova i dispositivi nella LAN corrente e filtra per gli ultimi quattro caratteri dell'indirizzo MAC."
-release_note = "1.3.4: Rectified per review comments. Aggiunge un'informativa sulla privacy nel pacchetto, rimuove dati e utente di servizio in disinstallazione, e toglie dipendenze extra che possono bloccare l'installazione nell'App Center."
+release_note = "1.3.5: Finestra predefinita 1040x760, colonna rete ordinabile, sfondo hover piu ampio per il primo aggiungi e rimozione dei punti di trascinamento in alto a sinistra."
 important = "L'app legge solo routing e tabella dei vicini e non modifica la configurazione di rete."
 
 [es-es]
 name = "Localizador de red"
 auth = "qishiyi"
 descript = "Encuentra dispositivos en la LAN actual y filtra por los ultimos cuatro caracteres de su direccion MAC."
-release_note = "1.3.4: Rectified per review comments. Anade una politica de privacidad en el paquete, elimina los datos y el usuario de servicio al desinstalar, y quita dependencias extra que pueden bloquear la instalacion del Centro de aplicaciones."
+release_note = "1.3.5: Ventana predeterminada 1040x760, columna de red ordenable, fondo hover mas amplio para anadir el primero y sin puntos de arrastre arriba a la izquierda."
 important = "La aplicacion solo lee el enrutamiento y la tabla de vecinos sin cambiar la configuracion de red."
 
 [hu-hu]
 name = "Hálózati lokalizáló"
 auth = "qishiyi"
 descript = "Megkeresi az aktuális LAN eszközeit, és a MAC-cím utolsó négy karaktere alapján szűri őket."
-release_note = "1.3.4: Rectified per review comments. Csomagba tett adatvedelmi iranyelv, eltavolitja az alkalmazasadatait es a szolgaltatasfelhasznalot eltavolitasakor, es elhagyja az App Center telepiteset akadalyozhato extra csomagfuggosegeket."
+release_note = "1.3.5: 1040x760-as alapertelmezett ablak, rendezheto halozati oszlop, szelesebb hover-hatter az elso hozzaadas gombnal, es a bal felso huzopontok eltavolitva."
 important = "Az alkalmazás csak helyi útvonal- és szomszédadatokat olvas, hálózati beállítást nem módosít."
 
 [ja-jp]
 name = "ネットワークロケーター"
 auth = "qishiyi"
 descript = "現在の LAN 上のデバイスを検出し、MAC アドレスの末尾 4 文字で絞り込みます。"
-release_note = "1.3.4：Rectified per review comments。パッケージ内にプライバシーポリシーを追加し、アンインストール時に本アプリの設定・データ・サービスユーザーを削除し、アプリセンターのオンラインインストールを妨げる可能性がある追加のパッケージ依存を外します。"
+release_note = "1.3.5：既定ウィンドウを 1040×760 に変更し、並べ替え可能なネットワーク列を追加、「最初の1台を追加」のホバー背景を広げ、左上の誤表示のドラッグ点を削除しました。"
 important = "ローカルのルーティング情報と近隣テーブルのみを読み取り、ネットワーク設定は変更しません。"
 
 [ko-kr]
 name = "네트워크 로케이터"
 auth = "qishiyi"
 descript = "현재 LAN의 장치를 찾고 MAC 주소 마지막 네 문자로 빠르게 구분합니다."
-release_note = "1.3.4: Rectified per review comments. 패키지 안에 개인정보 처리방침을 넣고, 제거 시 앱 데이터와 서비스 사용자를 정리하며, 앱 센터 온라인 설치를 막을 수 있는 추가 패키지 의존성을 제거합니다."
+release_note = "1.3.5: 기본 창을 1040x760으로 변경하고 정렬 가능한 네트워크 열을 추가했으며, 첫 추가 버튼의 호버 배경을 넓히고 왼쪽 위의 잘못된 드래그 점을 제거했습니다."
 important = "앱은 로컬 라우팅과 이웃 테이블만 읽으며 네트워크 설정을 변경하지 않습니다."
 
 [pl-pl]
 name = "Lokalizator sieci"
 auth = "qishiyi"
 descript = "Znajduje urzadzenia w biezacej sieci LAN i filtruje je po czterech ostatnich znakach adresu MAC."
-release_note = "1.3.4: Rectified per review comments. Dodaje polityke prywatnosci w pakiecie, usuwa dane aplikacji i uzytkownika uslugi przy odinstalowaniu oraz usuwa dodatkowe zaleznosci, ktore moga blokowac instalacje w Centrum aplikacji."
+release_note = "1.3.5: Domyslne okno 1040x760, sortowalna kolumna sieci, szersze tlo hover przycisku dodania pierwszego i usuniete kropki przeciagania w lewym gornym narozniku."
 important = "Aplikacja tylko odczytuje lokalne trasy i tabele sasiadow, bez zmiany konfiguracji sieci."
 
 [ru-ru]
 name = "Сетевой локатор"
 auth = "qishiyi"
 descript = "Находит устройства в текущей локальной сети и фильтрует их по последним четырём символам MAC."
-release_note = "1.3.4: Rectified per review comments. В пакет добавлена политика конфиденциальности, при удалении очищаются данные приложения и служебный пользователь, убраны лишние зависимости пакетов, которые могут мешать установке из Центра приложений."
+release_note = "1.3.5: Окно по умолчанию 1040x760, сортируемый столбец сети, шире фон наведения у кнопки добавления первой записи и удалены ошибочные точки перетаскивания в левом верхнем углу."
 important = "Приложение только читает локальную маршрутизацию и таблицу соседей, не меняя настройки сети."
 
 [tr-tr]
 name = "Ağ Konum Bulucu"
 auth = "qishiyi"
 descript = "Geçerli LAN cihazlarını bulur ve MAC adresinin son dört karakterine göre filtreler."
-release_note = "1.3.4: Rectified per review comments. Paketin icine bir gizlilik politikasi ekler, kaldirmada uygulama verisini ve hizmet kullanicisini siler, App Center kurulumunu engelleyebilecek ekstra paket bagimliliklarini cikarir."
+release_note = "1.3.5: Varsayilan pencere 1040x760, siralanabilir ag sutunu, ilk ekleme dugmesinde daha genis hover arka plani ve sol ustteki hatali surukleme noktalari kaldirildi."
 important = "Uygulama yalnızca yerel yönlendirme ve komşu verilerini okur, ağ ayarlarını değiştirmez."
 
 [pt-pt]
 name = "Localizador de rede"
 auth = "qishiyi"
 descript = "Encontra dispositivos na LAN atual e filtra pelos quatro ultimos caracteres do endereco MAC."
-release_note = "1.3.4: Rectified per review comments. Adiciona uma politica de privacidade no pacote, remove os dados e o utilizador de servico na desinstalacao, e retira dependencias extra que podem bloquear a instalacao no Centro de aplicacoes."
+release_note = "1.3.5: Janela predefinida 1040x760, coluna de rede ordenavel, fundo hover mais largo no botao de adicionar o primeiro e remocao dos pontos de arrastamento no canto superior esquerdo."
 important = "A aplicacao apenas le o encaminhamento local e a tabela de vizinhos sem alterar a configuracao de rede."

@@ -21,8 +21,8 @@ class PackageContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertEqual(config["version"], version)
-        self.assertEqual(config["width"], 860)
-        self.assertEqual(config["height"], 720)
+        self.assertEqual(config["width"], 1040)
+        self.assertEqual(config["height"], 760)
         self.assertIn(f"Version: {version}", control)
         self.assertIn(f'__version__ = "{version}"', backend)
 
@@ -210,9 +210,11 @@ class PackageContractTests(unittest.TestCase):
         styles = (ROOT / "frontend" / "styles.css").read_text(encoding="utf-8")
         self.assertNotIn(".suffix-input-list.is-multiple", styles)
         self.assertIn(".mac-copy", styles)
-        self.assertIn(".window-resize-grip", styles)
+        self.assertNotIn(".window-resize-grip", styles)
+        self.assertIn(".resize-safety-corner", styles)
         self.assertIn("--accent: #2563EB", styles)
-        self.assertIn("window-resize-grip", html)
+        self.assertNotIn("window-resize-grip", html)
+        self.assertIn("resize-safety-corner", html)
         self.assertIn(".field-label-row", styles)
         self.assertIn("scrollbar-gutter: stable", styles)
         self.assertNotRegex(
@@ -334,16 +336,16 @@ class PackageContractTests(unittest.TestCase):
         config = json.loads((ROOT / "config.ini").read_text(encoding="utf-8"))
         styles = (ROOT / "frontend" / "styles.css").read_text(encoding="utf-8")
         script = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
-        self.assertEqual(config["width"], 860)
-        self.assertEqual(config["height"], 720)
+        html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
+        self.assertEqual(config["width"], 1040)
+        self.assertEqual(config["height"], 760)
         self.assertTrue(config["resize"])
         self.assertTrue(config["maxmin"])
         self.assertRegex(styles, r"@media\s*\(\s*max-width:\s*980px\s*\)")
         self.assertNotRegex(styles, r"@media\s*\(\s*max-width:\s*1040px\s*\)")
-        # The 860 default is intentionally below the 980 compact breakpoint
-        # and yields a workspace of about 560px, below WORKSPACE_NARROW_MAX_WIDTH.
-        # Do not assert that is-narrow is false at the default width.
-        self.assertLess(config["width"], 980)
+        # The 1040x760 default leaves a 730px workspace, so the full layout
+        # with the network column and per-row actions fits without scrolling.
+        self.assertEqual(config["width"], 1040)
         self.assertIn("var WORKSPACE_NARROW_MAX_WIDTH = 680", script)
         self.assertIn(
             "width > 0 && width < WORKSPACE_NARROW_MAX_WIDTH",
@@ -357,8 +359,27 @@ class PackageContractTests(unittest.TestCase):
             min_workspace,
             int(config["width"]) - resizer - default_sidebar,
         )
-        self.assertEqual(workspace, 560)
-        self.assertLess(workspace, 680)
+        self.assertEqual(workspace, 730)
+        self.assertGreaterEqual(workspace, 680)
+        self.assertRegex(
+            styles,
+            r"\.workspace\.is-narrow \.results-table\s*\{[^}]*min-width:\s*0",
+        )
+        self.assertRegex(
+            styles,
+            r"\.workspace\.is-narrow \.results-table th\.actions-column",
+        )
+        self.assertRegex(
+            styles,
+            r"\.workspace\.is-narrow \.results-table td\.actions-cell",
+        )
+        self.assertIn('class="network-column"', html)
+        self.assertIn('data-sort-key="scan_range"', html)
+        self.assertIn("network-cell", script)
+        self.assertRegex(
+            styles,
+            r"\.results-table th\.network-column\s*\{[^}]*width:\s*\d+%",
+        )
 
         def last_decl(selector: str, prop: str) -> str:
             values = []

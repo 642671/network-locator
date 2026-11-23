@@ -2401,6 +2401,18 @@ function paintTableRows(preserveSelection) {
     });
     macCell.appendChild(macButton);
 
+    var networkCell = document.createElement("td");
+    networkCell.className = "mono-value network-cell";
+    networkCell.textContent = result.scan_range || "--";
+    networkCell.title = result.interface
+      ? result.interface + (result.scan_range ? " · " + result.scan_range : " · 未知网段")
+      : String(result.scan_range || "未知网段");
+    networkCell.setAttribute(
+      "aria-label",
+      "网段 " + String(result.scan_range || "未知") +
+        (result.interface ? "，接口 " + result.interface : "")
+    );
+
     var targetCell = document.createElement("td");
     targetCell.className = "target-column";
     var matchedSuffixes = Array.isArray(result.matched_suffixes)
@@ -2451,6 +2463,7 @@ function paintTableRows(preserveSelection) {
     row.appendChild(selectCell);
     row.appendChild(ipCell);
     row.appendChild(macCell);
+    row.appendChild(networkCell);
     row.appendChild(targetCell);
     row.appendChild(stateCell);
     row.appendChild(actionsCell);
@@ -3626,10 +3639,10 @@ function sidebarWidthBounds() {
 
 var workspaceResizeObserver = null;
 
-// Default 860x720 window, after the 6px resizer and the 560px minimum
-// workspace clamp, leaves a workspace of about 560px. That is intentionally
-// below this threshold so the default window uses the wrapping narrow layout.
-// Do not raise this value without also revisiting the default window size.
+// Default 1040x760 window, after the 6px resizer and the default 304px
+// sidebar, leaves a workspace of about 730px, so the full table with the
+// network column and per-row actions fits. Smaller user-resized windows use
+// the narrow layout, which hides the per-row action column.
 var WORKSPACE_NARROW_MAX_WIDTH = 680;
 
 function updateWorkspaceDensity() {

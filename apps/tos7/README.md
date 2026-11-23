@@ -3,7 +3,7 @@
 `network-locator` is a TOS 7 iframe Deb application for finding devices in the
 NAS's current physical LAN by the last four characters of their MAC address.
 
-Current version: `1.3.4`. The in-package and public privacy policy is [docs/PRIVACY.md](../../docs/PRIVACY.md).
+Current version: `1.3.5`. The in-package and public privacy policy is [docs/PRIVACY.md](../../docs/PRIVACY.md).
 
 Version 1.1.0 introduces the display name 网络定位 (Network Locator) and a new
 application identity: `network-locator` replaces the former `lan-mac-finder`
@@ -59,6 +59,8 @@ behavior is unchanged from `1.0.017`.
 - Filter the visible device overview or match table by IP, MAC, interface,
   scan range, or state. Space-separated terms must all match, and MAC fragments
   accept either `-` or `:` separators.
+- Show each device's CIDR network range in a sortable 「网段」 column, with the
+  interface name in its tooltip.
 - Sort every table column in ascending or descending order, with numeric IPv4
   and network ordering instead of plain string ordering.
 - Keep a submitted non-empty suffix searching automatically. A cycle refreshes
