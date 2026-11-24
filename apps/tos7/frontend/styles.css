@@ -2,7 +2,7 @@
   color-scheme: light;
   --titlebar-height: 56px;
   --sidebar-width: 304px;
-  --scan-pane-height: 390px;
+  --scan-pane-height: 300px;
   --panel-resizer-size: 10px;
   --page-bg: #dcebed;
   --glass: rgba(255, 255, 255, 0.3);
@@ -3382,7 +3382,7 @@ html[data-theme="dark"] .secondary-button {
 }
 
 .workspace-header {
-  min-height: 54px;
+  min-height: 44px;
   padding: 0 16px;
   gap: 14px;
 }
@@ -3400,8 +3400,8 @@ html[data-theme="dark"] .secondary-button {
 }
 
 .table-toolbar {
-  min-height: 46px;
-  padding: 6px 16px;
+  min-height: 40px;
+  padding: 5px 16px;
   gap: 10px;
 }
 
@@ -3418,17 +3418,17 @@ html[data-theme="dark"] .secondary-button {
 }
 
 .results-table th {
-  height: 38px;
+  height: 36px;
   font-size: 10.5px;
 }
 
 .sort-button {
-  height: 38px;
+  height: 36px;
   padding: 0 10px;
 }
 
 .results-table td {
-  height: 42px;
+  height: 40px;
   padding: 0 10px;
   font-size: 12px;
 }
@@ -3455,4 +3455,16 @@ html[data-theme="dark"] .secondary-button {
   height: 24px;
   padding: 0 8px;
   font-size: 9.5px;
+}
+
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 5px;
+}
+
+.section-title-row h1 {
+  margin: 0;
 }

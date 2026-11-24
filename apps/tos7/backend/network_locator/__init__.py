@@ -1,3 +1,3 @@
 """Network Locator backend package."""
 
-__version__ = "1.3.6"
+__version__ = "1.3.7"

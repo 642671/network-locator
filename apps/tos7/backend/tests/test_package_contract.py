@@ -324,6 +324,9 @@ class PackageContractTests(unittest.TestCase):
             html.index('id="addSuffixButton"'),
             html.index('id="suffixInputList"')
         )
+        self.assertIn('class="section-title-row"', html)
+        self.assertIn(".section-title-row", styles)
+        self.assertIn("var DEFAULT_SCAN_PANE_HEIGHT = 300", script)
         self.assertIn('id="targetSummary"', html)
         self.assertIn("var MAX_SUFFIX_INPUTS = 8", script)
         self.assertIn("matched_suffixes", script)
