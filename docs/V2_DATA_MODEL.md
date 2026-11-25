@@ -2,6 +2,8 @@
 
 > 适用版本：1.4.0  
 > 存储实现：`apps/tos7/backend/network_locator/store.py`（SQLite，WAL）  
+> 结构版本：`SCHEMA_VERSION = 2`（兼容 v1 数据库原位升级）
+>
 > 数据库位置：`$APP_DATA/network-locator.db`，打包环境中为
 > `/usr/local/network-locator/data/network-locator.db`  
 > 预览环境：`apps/tos7/backend/data/preview.sqlite`
@@ -12,10 +14,10 @@
 | --- | --- | --- |
 | Device | 一台被管理的设备，使用稳定的 `device_id` | `devices` 表 |
 | DeviceAddress | 设备在某个时间使用过的 IP / MAC / 接口 | `device_addresses` 表 |
-| NetworkInterface | 当前 NAS 的物理 IPv4 接口 | 由 `ip -j addr/link/route` 实时发现，不持久化 |
-| NetworkSegment | 接口 + CIDR 网段，例如 `eth0\|192.168.1.0/24` | 由接口地址和前缀实时计算，不持久化 |
+| NetworkInterface | 当前 NAS 的物理 IPv4 接口 | 由 `ip -j addr/link/route` 发现，并写入 `network_interfaces` 快照 |
+| NetworkSegment | 接口 + CIDR 网段，例如 `eth0\|192.168.1.0/24` | 由接口地址和前缀计算，并写入 `network_segments` 快照 |
 | ScanTask | 一次 MAC 扫描或设备清单扫描 | `scan_tasks` 表 |
-| ScanResult | 一次扫描发现的单条结果 | 任务结果 JSON 与地址变化记录 |
+| ScanResult | 一次扫描发现的单条结果 | `scan_results` 表；任务详情优先读该表，旧数据回退任务 JSON |
 | DeviceEvent | 设备首次发现、IP 变化、离线、恢复在线等事件 | `device_events` 表 |
 
 ## 2. 身份规则（不能以 IP 作为唯一标识）
@@ -50,7 +52,7 @@
 扫描失败、网络不可达、服务离线都不会被标记为成功；任务写入 `error`
 或 `stopped`，不会把旧设备伪造成新发现。
 
-## 4. 表结构（SCHEMA_VERSION = 1）
+## 4. 表结构（SCHEMA_VERSION = 2）
 
 - `meta(key, value)`：结构版本等元数据。
 - `devices`：`device_id` 主键，包含 `display_name`、`note`、`favorite`、
@@ -59,7 +61,13 @@
   `first_seen`、`last_seen`、`last_checked`、`seen_count`。
 - `device_addresses`：`device_id`、`ip`、`mac`、`interface`、`network_id`、
   `first_seen`、`last_seen`，保留 IP 历史。
-- `device_events`：设备事件、旧值、新值、时间。
+- `device_events`：设备事件、旧值、新值、时间，以及 `detail_code` /
+  `detail_args`（供中英文按代码渲染事件详情，不依赖已存储的中文文本）。
+- `scan_results`：任务 ID、`device_id`、IP、MAC、接口、网段、状态、观测时间、
+  匹配后缀与原始数据；`UNIQUE(task_id, mac, ip, interface)` 去重。
+- `network_interfaces`：接口名、别名、本机 IP、前缀、网关、网段、扫描范围、
+  主机数、本机 MAC、首次/最近发现时间。
+- `network_segments`：`network_id`、接口、CIDR、网关、主机数与首次/最近发现时间。
 - `scan_tasks`：任务类型、状态、起止时间、网段、自定义范围、后缀、
   发现数、新增数、离线数、IP 变化数、错误与告警。
 
@@ -71,6 +79,10 @@
   防止两个扫描互相踩踏。
 - 同一网段在单次任务中只探测一次；结果按
   `(network_id, ip, mac)` 合并。
+- 同一批观测中的完全相同记录会先去重；`scan_results` 按
+  `(task_id, mac, ip, interface)` 唯一约束写入，重复扫描不会重复建档案。
+- 设备列表使用 `limit` / `offset` 分页（UI 每页 50 条）；统计、网段计数和
+  厂商计数改为 SQL 聚合，10,000 台设备时页面仍只渲染当前页。
 - 自定义范围与活动网段可以同时提交；当没有选择活动网段时，只扫描
   自定义范围（`custom_only`）。
 - 扫描支持暂停、恢复、停止。暂停状态写入任务快照，恢复后继续未完成的
@@ -90,8 +102,12 @@ V2 的处理方式：
 3. V1 的 8 条 MAC 记录不会自动映射为 V2 设备，因为 MAC 后缀不是设备
    身份，且可能对应多台设备。用户可在“设备管理”中把对应设备设为收藏
    并填写备注。
-4. 迁移不需要停机，不需要手工建表。SQLite 初始化是幂等的；已有数据库
-   会按 `SCHEMA_VERSION` 检查，版本不匹配时应在发布前提供迁移脚本。
+4. 迁移不需要停机，不需要手工建表。SQLite 初始化是幂等的，并按
+   `SCHEMA_VERSION` 执行：
+   - v1 → v2：为 `device_events` 增加 `detail_code` / `detail_args`，创建
+     `scan_results`、`network_interfaces`、`network_segments`，保留原有设备、
+     地址、事件和任务记录。
+   - 数据库版本高于当前代码时拒绝启动，避免旧代码写入新结构。
 5. 卸载 Deb 会清理应用数据目录。需要保留设备档案时，先在“设置”或
    “设备管理”导出 CSV。
 
@@ -99,4 +115,5 @@ V2 的处理方式：
 
 CSV 导出使用后端设置中的分隔符、表头开关和 UTF-8 BOM。设备导出包含
 `device_id`、名称、IP、MAC、厂商、接口、网段、状态、首次/最近发现、
-收藏、备注与地址历史计数；扫描历史导出包含任务范围、状态与变化统计。
+收藏、备注与地址历史计数；分页只影响页面渲染，导出会按 `limit=1000`
+循环取完全部匹配记录。扫描历史导出包含任务范围、状态与变化统计。

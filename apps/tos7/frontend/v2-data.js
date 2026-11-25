@@ -13,6 +13,50 @@
     return String(value);
   }
 
+  function translateMessage(value) {
+    if (root.NetworkLocatorI18n && typeof root.NetworkLocatorI18n.translateMessage === "function") {
+      return root.NetworkLocatorI18n.translateMessage(String(value || ""));
+    }
+    return String(value || "");
+  }
+
+  function countUnit(count, zhUnit, enOne, enMany) {
+    var value = Number(count);
+    if (!Number.isFinite(value)) {
+      value = 0;
+    }
+    if (root.NetworkLocatorI18n && root.NetworkLocatorI18n.locale() === "en") {
+      return value + " " + (value === 1 ? enOne : enMany);
+    }
+    return value + zhUnit;
+  }
+
+  function countDevices(count) {
+    return countUnit(count, " 台设备", "device", "devices");
+  }
+
+  function countNetworks(count) {
+    return countUnit(count, " 个网段", "network", "networks");
+  }
+
+  function countTasks(count) {
+    return countUnit(count, " 个任务", "task", "tasks");
+  }
+
+  function deviceName(device) {
+    if (!device) {
+      return tr("未命名设备");
+    }
+    var name = String(device.name || "").trim();
+    if (device.live) {
+      name = translateMessage(name);
+    }
+    if (name && name !== "未命名设备") {
+      return name;
+    }
+    return tr("未命名设备");
+  }
+
   async function request(endpoint, payload, options) {
     var bridge = app();
     if (!bridge || typeof bridge.apiRequest !== "function") {
@@ -191,6 +235,64 @@
     return node;
   }
 
+  function statusReason(device) {
+    if (!device) {
+      return "";
+    }
+    var args = Array.isArray(device.status_reason_args) ? device.status_reason_args : [];
+    switch (device.status_reason_code) {
+      case "offline_not_found":
+        return tr("最近一次完整扫描未发现该设备");
+      case "neighbor_unconfirmed":
+        return tr("邻居表中存在，但最近一次探测未确认可达");
+      case "online_confirmed":
+        return tr("最近一次扫描确认在线");
+      case "never_checked":
+        return tr("尚未检测");
+      case "stale":
+        return tr("超过 ") + (args[0] || 0) + tr(" 分钟未检测");
+      case "preview_sample":
+        return tr("预览示例数据");
+      case "unknown":
+        return tr("尚无明确结果");
+      default:
+        return translateMessage(device.status_reason || "");
+    }
+  }
+
+  function eventDetail(event) {
+    if (!event) {
+      return "";
+    }
+    var args = Array.isArray(event.detail_args) ? event.detail_args : [];
+    switch (event.detail_code) {
+      case "discovered":
+        return (args[0] || "") + (args[1] ? " · " + args[1] : "");
+      case "ip_changed":
+        return (args[0] || "") + " → " + (args[1] || "");
+      case "mac_changed":
+        return (args[0] || "") + " → " + (args[1] || "");
+      case "online":
+        return args[0] || "";
+      case "offline":
+        return "";
+      case "renamed":
+        return args[0] || "";
+      case "renamed_cleared":
+        return "";
+      case "note":
+        return "";
+      case "favorite_added":
+        return "";
+      case "favorite_removed":
+        return "";
+      case "profile_updated":
+        return "";
+      default:
+        return translateMessage(event.detail || "");
+    }
+  }
+
   function copy(text, label) {
     var value = String(text || "");
     if (!value) {
@@ -241,18 +343,18 @@
       throw new Error("CSV 模块未加载");
     }
     var columns = [
-      { label: "设备名称", value: function (item) { return item.name; } },
-      { label: "IP 地址", value: "ip" },
-      { label: "MAC 地址", value: "mac" },
-      { label: "厂商", value: function (item) { return item.vendor || "未知厂商"; } },
-      { label: "状态", value: function (item) { return statusLabel(item.status); } },
-      { label: "网卡", value: "interface" },
-      { label: "网段", value: "network_id" },
-      { label: "随机 MAC", value: function (item) { return item.random_mac ? "是" : "否"; } },
-      { label: "首次发现", value: "first_seen" },
-      { label: "最近发现", value: "last_seen" },
-      { label: "备注", value: "note" },
-      { label: "收藏", value: function (item) { return item.favorite ? "是" : "否"; } }
+      { label: tr("设备名称"), value: function (item) { return deviceName(item); } },
+      { label: tr("IP 地址"), value: "ip" },
+      { label: tr("MAC 地址"), value: "mac" },
+      { label: tr("厂商"), value: function (item) { return item.vendor || tr("未知厂商"); } },
+      { label: tr("状态"), value: function (item) { return statusLabel(item.status); } },
+      { label: tr("网卡"), value: "interface" },
+      { label: tr("网段"), value: "network_id" },
+      { label: tr("随机 MAC"), value: function (item) { return item.random_mac ? tr("是") : tr("否"); } },
+      { label: tr("首次发现"), value: "first_seen" },
+      { label: tr("最近发现"), value: "last_seen" },
+      { label: tr("备注"), value: "note" },
+      { label: tr("收藏"), value: function (item) { return item.favorite ? tr("是") : tr("否"); } }
     ];
     return csv.buildCsv(devices || [], columns, csvSettings(settings));
   }
@@ -269,11 +371,11 @@
       throw new Error("CSV 模块未加载");
     }
     var columns = [
-      { label: "网卡", value: "interface" },
-      { label: "扫描范围", value: "scan_range" },
-      { label: "IP 地址", value: "ip" },
-      { label: "MAC 地址", value: "mac" },
-      { label: "状态", value: function (item) { return stateLabel(item.state) || item.state; } }
+      { label: tr("网卡"), value: "interface" },
+      { label: tr("扫描范围"), value: "scan_range" },
+      { label: tr("IP 地址"), value: "ip" },
+      { label: tr("MAC 地址"), value: "mac" },
+      { label: tr("状态"), value: function (item) { return stateLabel(item.state) || item.state; } }
     ];
     return csv.buildCsv(results || [], columns, csvSettings(settings));
   }
@@ -377,11 +479,18 @@
     formatTime: formatTime,
     formatDuration: formatDuration,
     formatBytes: formatBytes,
+    countUnit: countUnit,
+    countDevices: countDevices,
+    countNetworks: countNetworks,
+    countTasks: countTasks,
+    deviceName: deviceName,
     statusLabel: statusLabel,
     statusClass: statusClass,
     statusBadge: statusBadge,
+    statusReason: statusReason,
     stateLabel: stateLabel,
     eventLabel: eventLabel,
+    eventDetail: eventDetail,
     kindLabel: kindLabel,
     copy: copy,
     downloadCsv: downloadCsv,

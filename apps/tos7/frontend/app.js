@@ -654,7 +654,7 @@ function restoreDeviceCache() {
     setText(
       "resultSummary",
       t("已恢复上次探测到的 ") + countUnit(devices.length, " 台设备", "device", "devices") +
-        (stamp ? "（" + stamp + "）" : "") + "。"
+        (stamp ? t("（") + stamp + t("）") : "") + t("。")
     );
     setText("scanFooterMeta", t("已缓存设备 ") + countUnit(devices.length, " 台", "device", "devices"));
   }
@@ -760,9 +760,9 @@ function activeTargetLabel() {
   }
   var labels = state.targets.map(targetLabel);
   if (labels.length <= 3) {
-    return labels.join("、");
+    return labels.join(t("、"));
   }
-  return labels.slice(0, 3).join("、") + t(" 等 ") + countUnit(labels.length, " 个后缀", "suffix", "suffixes");
+  return labels.slice(0, 3).join(t("、")) + t(" 等 ") + countUnit(labels.length, " 个后缀", "suffix", "suffixes");
 }
 
 function pendingTargetLabel() {
@@ -773,9 +773,9 @@ function pendingTargetLabel() {
     return activeTargetLabel();
   }
   if (labels.length <= 3) {
-    return labels.join("、");
+    return labels.join(t("、"));
   }
-  return labels.slice(0, 3).join("、") + t(" 等 ") + countUnit(labels.length, " 个后缀", "suffix", "suffixes");
+  return labels.slice(0, 3).join(t("、")) + t(" 等 ") + countUnit(labels.length, " 个后缀", "suffix", "suffixes");
 }
 
 function targetResultLine(target) {
@@ -808,7 +808,7 @@ function syncActiveSuffixState() {
   state.normalizedSuffixes = state.targets.map(function (target) {
     return target.normalized;
   });
-  state.activeSuffix = state.activeSuffixes.join("、");
+  state.activeSuffix = state.activeSuffixes.join(t("、"));
   state.normalizedSuffix = state.normalizedSuffixes[0] || "";
 }
 
@@ -1055,7 +1055,7 @@ function continuousRoundLabel() {
 function continuousExhaustedMessage() {
   if (state.targets.length > 1) {
     return t("已完成 ") + MAX_NO_MATCH_ROUNDS + t(" 轮轮询查找：") +
-      state.targets.map(targetResultLine).join("；") + "。";
+      state.targets.map(targetResultLine).join(t("；")) + t("。");
   }
   return t("已完成 ") + MAX_NO_MATCH_ROUNDS + t(" 轮轮询查找，最终没有找到 MAC 后缀 ") +
     activeTargetLabel() + t(" 的设备。");
@@ -1071,7 +1071,7 @@ function searchFinishedMessage() {
     return continuousExhaustedMessage();
   }
   if (state.targets.length > 1) {
-    return t("查找完成：") + state.targets.map(targetResultLine).join("；") + "。";
+    return t("查找完成：") + state.targets.map(targetResultLine).join(t("；")) + t("。");
   }
   return continuousExhaustedMessage();
 }
@@ -1269,6 +1269,7 @@ function getCookie(name) {
 
 function platformHeaders(withJsonBody) {
   var headers = {};
+  headers["Accept-Language"] = tLocale();
   var csrf = getCookie("X-Csrf-Token");
   if (csrf) {
     headers["X-Csrf-Token"] = csrf;
@@ -1295,7 +1296,7 @@ function apiFailure(kind, url, detail, status) {
     offline: t("应用服务返回了错误"),
     rejected: t("请求未被接受")
   };
-  var error = new Error(labels[kind] + "：" + detail);
+  var error = new Error(labels[kind] + t("：") + detail);
   error.kind = kind;
   error.url = url;
   error.detail = detail;
@@ -1370,7 +1371,7 @@ async function send(root, endpoint, payload, options) {
     throw apiFailure(
       "session",
       url,
-      t("平台返回未登录响应（HTTP ") + response.status + "）",
+      t("平台返回未登录响应（HTTP ") + response.status + t("）"),
       response.status
     );
   }
@@ -1545,7 +1546,7 @@ function renderNetworkList() {
     checkbox.disabled = networkSelectionLocked();
     checkbox.setAttribute(
       "aria-label",
-      t("扫描网段 ") + network.scan_range + "（" + network.interface + "）"
+      t("扫描网段 ") + network.scan_range + t("（") + network.interface + t("）")
     );
     checkbox.addEventListener("change", function () {
       item.classList.toggle("is-selected", checkbox.checked);
@@ -2879,7 +2880,7 @@ function renderScanStatus(data, notifyTerminal) {
         "resultSummary",
         (state.continuous
           ? t("正在持续匹配 ") + activeTargetLabel() +
-            "（" + continuousRoundLabel() + "）"
+            t("（") + continuousRoundLabel() + t("）")
           : t("正在匹配 ") + activeTargetLabel()) +
           t("，已探测 ") + state.probedHosts + " / " + state.totalHosts + t(" 台主机。")
       );
@@ -2911,7 +2912,7 @@ function renderScanStatus(data, notifyTerminal) {
       setText(
         "resultSummary",
         t("持续搜索已找到 ") + countUnit(state.results.length, " 台设备", "device", "devices") +
-          t("，下一轮会自动刷新（") + continuousRoundLabel() + "）。"
+          t("，下一轮会自动刷新（") + continuousRoundLabel() + t("）") + t("。")
       );
     } else if (state.continuous) {
       setScanState(
@@ -2923,7 +2924,7 @@ function renderScanStatus(data, notifyTerminal) {
       setText(
         "resultSummary",
         t("当前没有搜索到 ") + pendingTargetLabel() +
-          t("，持续搜索仍在进行（") + continuousRoundLabel() + "）。"
+          t("，持续搜索仍在进行（") + continuousRoundLabel() + t("）") + t("。")
       );
     } else if (state.results.length) {
       setScanState(
@@ -2997,7 +2998,7 @@ function renderScanStatus(data, notifyTerminal) {
       setScanState(
         "idle",
         t("准备就绪"),
-        networkSelectionSummary() + "。"
+        networkSelectionSummary() + t("。")
       );
     }
     if (state.tableMode === "results" && !state.results.length) {
@@ -3083,7 +3084,7 @@ async function refreshNetworks(silent, refreshDeviceList) {
         "idle",
         t("准备就绪"),
         state.networks.length
-          ? networkSelectionSummary() + "。"
+          ? networkSelectionSummary() + t("。")
           : t("没有找到带默认网关的物理网卡。")
       );
     }
@@ -3165,7 +3166,7 @@ async function verifyCachedNetworks() {
       }
       setText("networkSummary", t("网段已更新 · ") + networkSelectionSummary());
       if (parts.length) {
-        toast(parts.join("，") + "。", false);
+        toast(parts.join(t("，")) + t("。"), false);
       }
     } else {
       setText("networkSummary", t("网段未变化 · ") + networkSelectionSummary());
@@ -3175,7 +3176,7 @@ async function verifyCachedNetworks() {
         "idle",
         t("准备就绪"),
         state.networks.length
-          ? networkSelectionSummary() + "。"
+          ? networkSelectionSummary() + t("。")
           : t("没有找到带默认网关的物理网卡。")
       );
     }
@@ -4316,7 +4317,7 @@ function fillSavedView(entry) {
   setText("savedViewNote", entry.note || t("未填写用途"));
   var ipText = matches.map(function (device) {
     return device.ip;
-  }).join("、");
+  }).join(t("、"));
   if (!ipText) {
     ipText = entry.lastSeenIp ? entry.lastSeenIp + t("（上次）") : t("未发现");
   }
@@ -5072,7 +5073,7 @@ async function boot() {
       "networkSummary",
       t("已恢复上次网段") +
         (state.networkCacheRestoredAt
-          ? "（" + formatTime(state.networkCacheRestoredAt) + "）"
+          ? t("（") + formatTime(state.networkCacheRestoredAt) + t("）")
           : "")
     );
     if (!restored && !cachedDevices) {
@@ -5086,7 +5087,7 @@ async function boot() {
         "idle",
         t("准备就绪"),
         state.networks.length
-          ? networkSelectionSummary() + "。"
+          ? networkSelectionSummary() + t("。")
           : t("没有找到带默认网关的物理网卡。")
       );
     }

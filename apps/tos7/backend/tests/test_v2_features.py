@@ -8,6 +8,7 @@ import threading
 import tempfile
 import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,7 +28,7 @@ from network_locator.oui import (  # noqa: E402
     vendor_count,
     vendor_for_mac,
 )
-from network_locator.store import Store  # noqa: E402
+from network_locator.store import SCHEMA_VERSION, Store  # noqa: E402
 
 
 def observation(mac: str, ip: str, *, state: str = "REACHABLE", scan_range: str = "10.0.0.0/24") -> dict:
@@ -285,6 +286,271 @@ class OuiTests(unittest.TestCase):
         self.assertEqual(classify_query("3C0754")[0], "prefix")
         self.assertEqual(classify_query("1B2C")[0], "suffix")
         self.assertEqual(classify_query("7549A1B")[0], "any")
+
+
+class DataModelTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = Store(Path(self.tmp.name) / "network-locator.sqlite")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_batch_duplicates_are_ignored(self) -> None:
+        duplicate = observation("AA-BB-CC-11-22-33", "192.0.2.10")
+        summary = self.store.ingest_observations([duplicate, dict(duplicate)])
+        self.assertEqual(summary["observed"], 1)
+        device = self.store.list_devices()["devices"][0]
+        self.assertEqual(device["seen_count"], 1)
+
+    def test_ip_change_keeps_one_device_and_two_address_records(self) -> None:
+        self.store.ingest_observations([observation("AA-BB-CC-11-22-33", "192.0.2.10")])
+        device_id = self.store.list_devices()["devices"][0]["device_id"]
+        self.store.ingest_observations([observation("AA-BB-CC-11-22-33", "192.0.2.20")])
+        detail = self.store.get_device(device_id)
+        assert detail is not None
+        self.assertEqual(len(self.store.list_devices()["devices"]), 1)
+        current = [item for item in detail["addresses"] if item["ip"] == "192.0.2.20"]
+        history = [item for item in detail["addresses"] if item["ip"] == "192.0.2.10"]
+        self.assertEqual(len(current), 1)
+        self.assertEqual(len(history), 1)
+        self.assertTrue(current[0]["is_current"])
+        self.assertFalse(history[0]["is_current"])
+        self.assertEqual(detail["status_reason_code"], "online_confirmed")
+        event_codes = {item.get("detail_code") for item in detail["events"]}
+        self.assertIn("discovered", event_codes)
+        self.assertIn("ip_changed", event_codes)
+
+    def test_scan_results_table_links_observation_to_device(self) -> None:
+        snapshot = {
+            "job_id": "task-results-1",
+            "status": "completed",
+            "started_at": "2026-01-01T10:00:00",
+            "finished_at": "2026-01-01T10:00:07",
+            "selected_network_ids": ["eth0|10.0.0.0/24"],
+            "networks": [
+                {"interface": "eth0", "scan_range": "10.0.0.0/24", "network_id": "eth0|10.0.0.0/24"}
+            ],
+            "suffixes": [],
+            "custom_ranges": [],
+            "total_hosts": 254,
+            "probed_hosts": 254,
+            "results": [observation("AA-BB-CC-11-22-33", "192.0.2.10")],
+            "warnings": [],
+            "error": "",
+        }
+        task = self.store.record_scan_task(snapshot, kind="inventory")
+        self.assertEqual(task["task_id"], "task-results-1")
+        self.assertEqual(len(task["results"]), 1)
+        device_id = self.store.list_devices()["devices"][0]["device_id"]
+        self.assertEqual(task["results"][0]["device_id"], device_id)
+        with sqlite3.connect(str(self.store.path)) as connection:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM scan_results WHERE task_id = ?", ("task-results-1",)
+            ).fetchone()[0]
+        self.assertEqual(count, 1)
+
+    def test_network_snapshot_persists_interfaces_and_segments(self) -> None:
+        self.store.record_network_snapshot(
+            [
+                {
+                    "interface": "eth0",
+                    "alias": "eth0",
+                    "local_ip": "10.0.0.5",
+                    "prefix_length": 24,
+                    "gateway": "10.0.0.1",
+                    "network": "10.0.0.0",
+                    "broadcast": "10.0.0.255",
+                    "scan_range": "10.0.0.0/24",
+                    "host_count": 254,
+                    "local_mac": "02-42-AC-00-00-05",
+                    "network_id": "eth0|10.0.0.0/24",
+                }
+            ]
+        )
+        interfaces = self.store.list_interfaces()
+        segments = self.store.list_segments()
+        self.assertEqual(interfaces[0]["interface"], "eth0")
+        self.assertEqual(segments[0]["network_id"], "eth0|10.0.0.0/24")
+
+    def test_ten_thousand_devices_paginate(self) -> None:
+        now = datetime.now().isoformat(timespec="seconds")
+        rows = []
+        for index in range(10000):
+            ip = f"10.0.{index // 254}.{index % 254 + 1}"
+            rows.append(
+                (
+                    f"dev-bulk-{index}",
+                    f"Device {index}",
+                    "",
+                    0,
+                    "Example",
+                    "",
+                    f"02-00-00-{(index // 65536) % 256:02X}-{(index // 256) % 256:02X}-{index % 256:02X}",
+                    ip,
+                    "eth0",
+                    "eth0|10.0.0.0/24",
+                    "online",
+                    "REACHABLE",
+                    0,
+                    now,
+                    now,
+                    now,
+                    now,
+                    now,
+                    1,
+                )
+            )
+        with sqlite3.connect(str(self.store.path)) as connection:
+            connection.executemany(
+                "INSERT INTO devices("
+                "device_id, display_name, note, favorite, vendor, device_type, "
+                "mac_current, ip_current, interface_current, network_current, status, "
+                "status_state, random_mac, first_seen, last_seen, last_checked, "
+                "created_at, updated_at, seen_count"
+                ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+        page = self.store.list_devices(limit=50, offset=100)
+        self.assertEqual(page["total"], 10000)
+        self.assertEqual(len(page["devices"]), 50)
+        self.assertEqual(self.store.stats()["total"], 10000)
+        self.assertEqual(self.store.stats()["online"], 10000)
+        self.assertEqual(self.store.network_counts()["eth0|10.0.0.0/24"]["total"], 10000)
+
+
+class MigrationTests(unittest.TestCase):
+    def test_version_one_database_is_upgraded_and_preserved(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "legacy.sqlite"
+        with sqlite3.connect(str(path)) as connection:
+            connection.executescript(
+                """
+                CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE devices (
+                    device_id TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL DEFAULT '',
+                    note TEXT NOT NULL DEFAULT '',
+                    favorite INTEGER NOT NULL DEFAULT 0,
+                    vendor TEXT NOT NULL DEFAULT '',
+                    device_type TEXT NOT NULL DEFAULT '',
+                    mac_current TEXT NOT NULL DEFAULT '',
+                    ip_current TEXT NOT NULL DEFAULT '',
+                    interface_current TEXT NOT NULL DEFAULT '',
+                    network_current TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'unknown',
+                    status_state TEXT NOT NULL DEFAULT '',
+                    random_mac INTEGER NOT NULL DEFAULT 0,
+                    first_seen TEXT NOT NULL,
+                    last_seen TEXT NOT NULL,
+                    last_checked TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    seen_count INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE TABLE device_addresses (
+                    address_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    device_id TEXT NOT NULL,
+                    ip TEXT NOT NULL,
+                    mac TEXT NOT NULL,
+                    interface TEXT NOT NULL DEFAULT '',
+                    network_id TEXT NOT NULL DEFAULT '',
+                    first_seen TEXT NOT NULL,
+                    last_seen TEXT NOT NULL,
+                    last_state TEXT NOT NULL DEFAULT '',
+                    seen_count INTEGER NOT NULL DEFAULT 1,
+                    is_current INTEGER NOT NULL DEFAULT 1,
+                    UNIQUE(device_id, ip, mac, interface)
+                );
+                CREATE TABLE device_events (
+                    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    device_id TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    detail TEXT NOT NULL DEFAULT '',
+                    task_id TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE scan_tasks (
+                    task_id TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL DEFAULT 'mac',
+                    status TEXT NOT NULL DEFAULT 'completed',
+                    started_at TEXT NOT NULL,
+                    finished_at TEXT NOT NULL,
+                    network_ids TEXT NOT NULL DEFAULT '[]',
+                    networks TEXT NOT NULL DEFAULT '[]',
+                    suffixes TEXT NOT NULL DEFAULT '[]',
+                    custom_ranges TEXT NOT NULL DEFAULT '[]',
+                    total_hosts INTEGER NOT NULL DEFAULT 0,
+                    probed_hosts INTEGER NOT NULL DEFAULT 0,
+                    discovered INTEGER NOT NULL DEFAULT 0,
+                    new_devices INTEGER NOT NULL DEFAULT 0,
+                    offline_devices INTEGER NOT NULL DEFAULT 0,
+                    ip_changes INTEGER NOT NULL DEFAULT 0,
+                    result_count INTEGER NOT NULL DEFAULT 0,
+                    warnings TEXT NOT NULL DEFAULT '[]',
+                    error TEXT NOT NULL DEFAULT '',
+                    results TEXT NOT NULL DEFAULT '[]'
+                );
+                INSERT INTO meta(key, value) VALUES('schema_version', '1');
+                INSERT INTO devices(
+                    device_id, display_name, note, favorite, vendor, mac_current,
+                    ip_current, interface_current, network_current, status,
+                    status_state, first_seen, last_seen, last_checked, created_at,
+                    updated_at, seen_count
+                ) VALUES(
+                    'dev-legacy', 'Legacy device', 'keep me', 1, 'Apple',
+                    '3C-07-54-9A-1B-2C', '192.0.2.44', 'eth0',
+                    'eth0|192.0.2.0/24', 'online', 'REACHABLE',
+                    '2026-01-01T10:00:00', '2026-01-01T11:00:00',
+                    '2026-01-01T11:00:00', '2026-01-01T10:00:00',
+                    '2026-01-01T11:00:00', 4
+                );
+                INSERT INTO device_addresses(
+                    device_id, ip, mac, interface, network_id, first_seen,
+                    last_seen, last_state, seen_count, is_current
+                ) VALUES(
+                    'dev-legacy', '192.0.2.44', '3C-07-54-9A-1B-2C', 'eth0',
+                    'eth0|192.0.2.0/24', '2026-01-01T10:00:00',
+                    '2026-01-01T11:00:00', 'REACHABLE', 4, 1
+                );
+                INSERT INTO device_events(device_id, kind, detail, task_id, created_at)
+                VALUES('dev-legacy', 'discovered', '首次发现', 'task-legacy', '2026-01-01T10:00:00');
+                INSERT INTO scan_tasks(
+                    task_id, kind, status, started_at, finished_at, discovered, result_count
+                ) VALUES('task-legacy', 'inventory', 'completed',
+                         '2026-01-01T10:00:00', '2026-01-01T10:00:07', 1, 1);
+                """
+            )
+        store = Store(path)
+        with sqlite3.connect(str(path)) as connection:
+            version = connection.execute(
+                "SELECT value FROM meta WHERE key = 'schema_version'"
+            ).fetchone()[0]
+            event_columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(device_events)")
+            }
+            tables = {
+                row[0] for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+        self.assertEqual(int(version), SCHEMA_VERSION)
+        self.assertIn("detail_code", event_columns)
+        self.assertIn("detail_args", event_columns)
+        self.assertIn("scan_results", tables)
+        self.assertIn("network_interfaces", tables)
+        self.assertIn("network_segments", tables)
+        detail = store.get_device("dev-legacy")
+        assert detail is not None
+        self.assertEqual(detail["name"], "Legacy device")
+        self.assertEqual(detail["note"], "keep me")
+        self.assertTrue(detail["favorite"])
+        self.assertEqual(detail["status"], "unknown")
+        self.assertEqual(detail["status_reason_code"], "stale")
+        self.assertEqual(detail["addresses"][0]["ip"], "192.0.2.44")
+        self.assertEqual(store.list_tasks()["total"], 1)
+        self.assertEqual(store.get_task("task-legacy")["task_id"], "task-legacy")
 
 
 class CustomRangeTests(unittest.TestCase):

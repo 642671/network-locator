@@ -284,7 +284,7 @@
   function updateLocaleControls() {
     var toggle = byId("v2LocaleToggle");
     if (toggle) {
-      toggle.textContent = locale() === "en" ? "中文" : "EN";
+      toggle.textContent = locale() === "en" ? "Chinese" : "EN";
       toggle.setAttribute(
         "aria-label",
         locale() === "en" ? "Switch to Chinese" : "Switch to English"

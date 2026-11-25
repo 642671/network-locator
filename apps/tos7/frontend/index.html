@@ -206,6 +206,11 @@
             </div>
             <div id="v2DashEmpty" class="v2-empty-state" hidden>还没有设备档案，先运行一次扫描。</div>
             <div id="v2DashLoading" class="v2-loading" hidden><span class="v2-spinner"></span> 正在加载设备…</div>
+            <div id="v2DashPager" class="v2-pager" hidden>
+              <span id="v2DashPagerInfo" class="v2-muted"></span>
+              <button id="v2DashPrev" class="v2-button" type="button">上一页</button>
+              <button id="v2DashNext" class="v2-button" type="button">下一页</button>
+            </div>
           </section>
         </section>
 
@@ -692,6 +697,11 @@
             </div>
             <div id="v2InvEmpty" class="v2-empty-state" hidden>没有匹配的设备。</div>
             <div id="v2InvLoading" class="v2-loading" hidden><span class="v2-spinner"></span> 正在加载设备…</div>
+            <div id="v2InvPager" class="v2-pager" hidden>
+              <span id="v2InvPagerInfo" class="v2-muted"></span>
+              <button id="v2InvPrev" class="v2-button" type="button">上一页</button>
+              <button id="v2InvNext" class="v2-button" type="button">下一页</button>
+            </div>
           </section>
         </section>
 
@@ -930,6 +940,11 @@
       </button>
     </header>
     <div class="v2-drawer-body">
+      <div id="v2DrawerLoading" class="v2-loading" hidden><span class="v2-spinner"></span> 正在读取设备…</div>
+      <div id="v2DrawerError" class="v2-empty-state is-error" hidden>
+        <strong id="v2DrawerErrorText"></strong>
+        <button id="v2DrawerRetry" class="v2-button" type="button">重试</button>
+      </div>
       <div class="v2-drawer-edit">
         <label>设备名称<input id="v2DrawerNameInput" class="v2-input" type="text" maxlength="80" autocomplete="off"></label>
         <label>备注<textarea id="v2DrawerNoteInput" class="v2-textarea" maxlength="500" rows="3"></textarea></label>
@@ -941,7 +956,12 @@
         </div>
         <p id="v2DrawerSaveState" class="v2-hint"></p>
       </div>
+      <p id="v2DrawerStatusReason" class="v2-hint"></p>
       <dl id="v2DrawerSummary" class="v2-about v2-detail-grid"></dl>
+      <section class="v2-drawer-section">
+        <h3>地址历史</h3>
+        <div id="v2DrawerAddresses"></div>
+      </section>
       <section class="v2-drawer-section">
         <h3>IP 历史</h3>
         <div id="v2DrawerIpHistory"></div>

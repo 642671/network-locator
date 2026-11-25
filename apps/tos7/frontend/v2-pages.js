@@ -17,6 +17,8 @@
       query: "",
       status: "",
       sort: "last_seen",
+      offset: 0,
+      limit: 50,
       token: 0
     },
     inventory: {
@@ -28,6 +30,8 @@
       direction: "desc",
       selected: {},
       total: 0,
+      offset: 0,
+      limit: 50,
       stats: null,
       settings: null,
       token: 0
@@ -44,7 +48,9 @@
     settings: null,
     drawer: {
       device: null,
-      saving: false
+      saving: false,
+      token: 0,
+      currentId: ""
     },
     autoScanRunning: false,
     autoScanTimer: null
@@ -86,6 +92,53 @@
     }
   }
 
+  function paintPager(prefix, offset, count, total) {
+    var pager = doc(prefix + "Pager");
+    var info = doc(prefix + "PagerInfo");
+    var prev = doc(prefix + "Prev");
+    var next = doc(prefix + "Next");
+    if (info) {
+      var page = Math.floor(offset / Math.max(1, state.inventory.limit)) + 1;
+      if (prefix === "v2Dash") {
+        page = Math.floor(offset / Math.max(1, state.dashboard.limit)) + 1;
+      }
+      var start = total ? offset + 1 : 0;
+      var end = offset + count;
+      info.textContent = D.tr("第") + " " + page + D.tr(" 页") + " · " + start + "–" + end + " / " + total;
+    }
+    if (prev) {
+      prev.disabled = offset <= 0;
+    }
+    if (next) {
+      next.disabled = offset + count >= total;
+    }
+    if (pager) {
+      pager.hidden = total === 0 || (total <= count && offset === 0);
+    }
+  }
+
+  async function fetchAllDevices(params) {
+    var collected = [];
+    var total = 0;
+    var settings = null;
+    var offset = 0;
+    var guard = 0;
+    do {
+      var page = Object.assign({}, params || {}, { limit: 1000, offset: offset });
+      var payload = await D.API.devices(page);
+      var devices = payload.devices || [];
+      settings = payload.settings || settings;
+      total = payload.total || 0;
+      collected = collected.concat(devices);
+      offset += devices.length;
+      guard += 1;
+      if (!devices.length || offset >= total || guard > 500) {
+        break;
+      }
+    } while (true);
+    return { devices: collected, total: total, settings: settings };
+  }
+
   function openDevice(deviceId) {
     if (!deviceId) {
       return;
@@ -119,7 +172,7 @@
   }
 
   function exportButtonLabel(count) {
-    return count ? D.tr("导出 ") + count + D.tr(" 台设备") : D.tr("导出 CSV");
+    return count ? D.tr("导出 ") + D.countDevices(count) : D.tr("导出 CSV");
   }
 
   function makeCopyButton(text, label) {
@@ -177,7 +230,7 @@
       var checkbox = D.el("input");
       checkbox.type = "checkbox";
       checkbox.checked = !!(device.device_id && state.inventory.selected[device.device_id]);
-      checkbox.setAttribute("aria-label", D.tr("选择") + " " + device.name);
+      checkbox.setAttribute("aria-label", D.tr("选择") + " " + D.deviceName(device));
       checkbox.addEventListener("click", function (event) {
         event.stopPropagation();
       });
@@ -186,7 +239,7 @@
           return;
         }
         if (checkbox.checked) {
-          state.inventory.selected[device.device_id] = true;
+          state.inventory.selected[device.device_id] = device;
         } else {
           delete state.inventory.selected[device.device_id];
         }
@@ -198,8 +251,8 @@
 
     var nameCell = D.el("td");
     var nameLine = D.el("div", "v2-name-line");
-    var nameNode = D.el("strong", "", device.name || D.tr("未命名设备"));
-    nameNode.title = device.name || D.tr("未命名设备");
+    var nameNode = D.el("strong", "", D.deviceName(device));
+    nameNode.title = D.deviceName(device);
     nameLine.appendChild(nameNode);
     if (device.favorite) {
       nameLine.appendChild(D.el("span", "v2-fav", "★"));
@@ -236,7 +289,7 @@
     tr.appendChild(vendorCell);
 
     var statusCell = D.el("td");
-    statusCell.appendChild(D.statusBadge(device.status, device.status_reason));
+    statusCell.appendChild(D.statusBadge(device.status, D.statusReason(device)));
     tr.appendChild(statusCell);
 
     if (opts.showNetwork !== false) {
@@ -297,7 +350,8 @@
           status: state.dashboard.status,
           sort: state.dashboard.sort,
           direction: "desc",
-          limit: 300
+          limit: state.dashboard.limit,
+          offset: state.dashboard.offset
         })
       ]);
       if (token !== state.dashboard.token) {
@@ -381,8 +435,8 @@
       var row = D.el("div", "v2-list-row v2-list-row--clickable");
       var main = D.el("div", "v2-list-main");
       var line = D.el("div", "v2-name-line");
-      line.appendChild(D.el("strong", "", device.name));
-      line.appendChild(D.statusBadge(device.status, device.status_reason));
+      line.appendChild(D.el("strong", "", D.deviceName(device)));
+      line.appendChild(D.statusBadge(device.status, D.statusReason(device)));
       main.appendChild(line);
       main.appendChild(D.el("span", "v2-subtle", device.ip + " · " + device.mac));
       row.appendChild(main);
@@ -400,10 +454,15 @@
       loading.hidden = true;
     }
     var list = devicesPayload.devices || [];
+    if (!list.length && (devicesPayload.total || 0) > 0 && state.dashboard.offset > 0) {
+      state.dashboard.offset = 0;
+      return loadDashboard();
+    }
     if (empty) {
       empty.hidden = list.length > 0;
     }
     renderDeviceTable(tbody, list, { showNetwork: false });
+    paintPager("v2Dash", state.dashboard.offset, list.length, devicesPayload.total || list.length);
   }
 
   function bindDashboard() {
@@ -417,6 +476,7 @@
     if (search) {
       search.addEventListener("input", debounce(function () {
         state.dashboard.query = search.value.trim();
+        state.dashboard.offset = 0;
         loadDashboard();
       }, 260));
     }
@@ -424,6 +484,7 @@
     if (status) {
       status.addEventListener("change", function () {
         state.dashboard.status = status.value;
+        state.dashboard.offset = 0;
         loadDashboard();
       });
     }
@@ -431,6 +492,7 @@
     if (sort) {
       sort.addEventListener("change", function () {
         state.dashboard.sort = sort.value;
+        state.dashboard.offset = 0;
         loadDashboard();
       });
     }
@@ -438,19 +500,32 @@
     if (exportButton) {
       exportButton.addEventListener("click", exportDashboard);
     }
+    var prev = doc("v2DashPrev");
+    if (prev) {
+      prev.addEventListener("click", function () {
+        state.dashboard.offset = Math.max(0, state.dashboard.offset - state.dashboard.limit);
+        loadDashboard();
+      });
+    }
+    var next = doc("v2DashNext");
+    if (next) {
+      next.addEventListener("click", function () {
+        state.dashboard.offset += state.dashboard.limit;
+        loadDashboard();
+      });
+    }
   }
 
   async function exportDashboard() {
     try {
-      var payload = await D.API.devices({
+      var payload = await fetchAllDevices({
         query: state.dashboard.query,
         status: state.dashboard.status,
         sort: state.dashboard.sort,
-        direction: "desc",
-        limit: 5000
+        direction: "desc"
       });
       D.exportDevices(payload.devices || [], payload.settings || appSettings(), "network-locator-dashboard");
-      D.toast(D.tr("已导出 ") + (payload.devices || []).length + D.tr(" 台设备"), false);
+      D.toast(D.tr("已导出 ") + D.countDevices((payload.devices || []).length), false);
     } catch (error) {
       D.toast(error.message || D.tr("导出失败"), true);
     }
@@ -476,7 +551,7 @@
 
   /* ---------------------------------------------------------------- inventory */
 
-  function inventoryParams(limit) {
+  function inventoryParams(limit, offset) {
     var inv = state.inventory;
     return {
       query: inv.query,
@@ -484,7 +559,8 @@
       favorite: inv.favorite ? 1 : "",
       sort: inv.sort,
       direction: inv.direction,
-      limit: limit || 5000
+      limit: limit || inv.limit,
+      offset: offset === undefined ? inv.offset : offset
     };
   }
 
@@ -530,20 +606,6 @@
     }
   }
 
-  function pruneSelection(list) {
-    var present = {};
-    list.forEach(function (device) {
-      if (device.device_id) {
-        present[device.device_id] = true;
-      }
-    });
-    Object.keys(state.inventory.selected).forEach(function (id) {
-      if (!present[id]) {
-        delete state.inventory.selected[id];
-      }
-    });
-  }
-
   function selectedIds() {
     return Object.keys(state.inventory.selected);
   }
@@ -567,7 +629,7 @@
     if (bar) {
       bar.hidden = count === 0;
     }
-    D.setText("v2InvBulkText", D.tr("已选 ") + count + D.tr(" 台设备"));
+    D.setText("v2InvBulkText", D.tr("已选 ") + D.countDevices(count));
     var exportButton = doc("v2InvBulkExport");
     if (exportButton) {
       exportButton.disabled = count === 0;
@@ -588,14 +650,22 @@
     D.setText("v2InvCountFavorite", stats.favorites || 0);
     D.setText(
       "v2InvSummary",
-      D.tr("共 ") + (stats.total || 0) + D.tr(" 台设备") +
+      D.tr("共 ") + D.countDevices(stats.total || 0) +
         " · " + D.tr("在线 ") + (stats.online || 0) +
         " · " + D.tr("离线 ") + (stats.offline || 0) +
         " · " + D.tr("未知 ") + (stats.unknown || 0) +
         " · " + D.tr("收藏 ") + (stats.favorites || 0)
     );
     var list = payload.devices || [];
-    pruneSelection(list);
+    if (!list.length && (payload.total || 0) > 0 && state.inventory.offset > 0) {
+      state.inventory.offset = 0;
+      return loadInventory();
+    }
+    (payload.devices || []).forEach(function (device) {
+      if (device.device_id && state.inventory.selected[device.device_id]) {
+        state.inventory.selected[device.device_id] = device;
+      }
+    });
     var tbody = doc("v2InvTableBody");
     if (tbody) {
       renderDeviceTable(tbody, list, { selectable: true });
@@ -606,11 +676,13 @@
       empty.textContent = D.tr("没有匹配的设备。");
     }
     updateBulkBar();
+    paintPager("v2Inv", state.inventory.offset, list.length, payload.total || list.length);
   }
 
   function setInventoryFilter(status, favorite) {
     state.inventory.status = status || "";
     state.inventory.favorite = !!favorite;
+    state.inventory.offset = 0;
     var filters = doc("v2InvFilters");
     if (filters) {
       var buttons = filters.querySelectorAll("button");
@@ -632,16 +704,18 @@
   async function exportInventory(selectedOnly) {
     try {
       if (selectedOnly) {
-        var chosen = (state.inventory.list || []).filter(function (device) {
-          return device.device_id && state.inventory.selected[device.device_id];
+        var chosen = Object.keys(state.inventory.selected).map(function (id) {
+          return state.inventory.selected[id];
+        }).filter(function (device) {
+          return device && device.device_id;
         });
         D.exportDevices(chosen, appSettings(), "network-locator-selected");
-        D.toast(D.tr("已导出 ") + chosen.length + D.tr(" 台设备"), false);
+        D.toast(D.tr("已导出 ") + D.countDevices(chosen.length), false);
         return;
       }
-      var payload = await D.API.devices(inventoryParams(5000));
+      var payload = await fetchAllDevices(inventoryParams(undefined, 0));
       D.exportDevices(payload.devices || [], payload.settings || appSettings(), "network-locator-inventory");
-      D.toast(D.tr("已导出 ") + (payload.devices || []).length + D.tr(" 台设备"), false);
+      D.toast(D.tr("已导出 ") + D.countDevices((payload.devices || []).length), false);
     } catch (error) {
       D.toast(error.message || D.tr("导出失败"), true);
     }
@@ -658,7 +732,7 @@
       await Promise.all(ids.map(function (id) {
         return D.API.updateDevice(id, { favorite: true });
       }));
-      D.toast(D.tr("已收藏 ") + ids.length + D.tr(" 台设备"), false);
+      D.toast(D.tr("已收藏 ") + D.countDevices(ids.length), false);
       await loadInventory();
     } catch (error) {
       D.toast(error.message || D.tr("批量收藏失败"), true);
@@ -711,6 +785,7 @@
     if (search) {
       search.addEventListener("input", debounce(function () {
         state.inventory.query = search.value.trim();
+        state.inventory.offset = 0;
         loadInventory();
       }, 260));
     }
@@ -718,6 +793,7 @@
     if (sort) {
       sort.addEventListener("change", function () {
         state.inventory.sort = sort.value;
+        state.inventory.offset = 0;
         loadInventory();
       });
     }
@@ -725,6 +801,7 @@
     if (direction) {
       direction.addEventListener("change", function () {
         state.inventory.direction = direction.value;
+        state.inventory.offset = 0;
         loadInventory();
       });
     }
@@ -744,6 +821,7 @@
           direction.value = "desc";
         }
         state.inventory.selected = {};
+        state.inventory.offset = 0;
         setInventoryFilter("", false);
       });
     }
@@ -756,7 +834,7 @@
             return;
           }
           if (selectAll.checked) {
-            state.inventory.selected[device.device_id] = true;
+            state.inventory.selected[device.device_id] = device;
           } else {
             delete state.inventory.selected[device.device_id];
           }
@@ -797,6 +875,20 @@
     if (scan) {
       scan.addEventListener("click", function () {
         runInventoryScan(scan);
+      });
+    }
+    var prev = doc("v2InvPrev");
+    if (prev) {
+      prev.addEventListener("click", function () {
+        state.inventory.offset = Math.max(0, state.inventory.offset - state.inventory.limit);
+        loadInventory();
+      });
+    }
+    var next = doc("v2InvNext");
+    if (next) {
+      next.addEventListener("click", function () {
+        state.inventory.offset += state.inventory.limit;
+        loadInventory();
       });
     }
   }
@@ -860,8 +952,8 @@
     var card = D.el("article", "v2-result-card");
     var head = D.el("div", "v2-result-head");
     var title = D.el("div", "v2-name-line");
-    title.appendChild(D.el("strong", "", match.name || match.display_name || D.tr("未命名设备")));
-    title.appendChild(D.statusBadge(match.status, match.status_reason));
+    title.appendChild(D.el("strong", "", D.deviceName(match)));
+    title.appendChild(D.statusBadge(match.status, D.statusReason(match)));
     if (match.live) {
       title.appendChild(D.el("span", "v2-mini-badge", D.tr("扫描结果")));
     }
@@ -889,7 +981,7 @@
     card.appendChild(grid);
     if (Array.isArray(match.matched_macs) && match.matched_macs.length > 1) {
       card.appendChild(
-        D.el("p", "v2-hint", D.tr("匹配到 ") + match.matched_macs.length + D.tr(" 个历史 MAC：") + match.matched_macs.join("、"))
+        D.el("p", "v2-hint", D.tr("匹配到 ") + match.matched_macs.length + D.tr(" 个历史 MAC：") + match.matched_macs.join(D.tr("、")))
       );
     }
     var actions = D.el("div", "v2-inline-actions");
@@ -1004,13 +1096,13 @@
         var total = (payload.results || []).reduce(function (sum, item) {
           return sum + (item.count || 0);
         }, 0);
-        D.toast(D.tr("批量查询完成，共匹配 ") + total + D.tr(" 台设备"), false);
+        D.toast(D.tr("批量查询完成，共匹配 ") + D.countDevices(total), false);
       } else {
         payload = await D.API.macLookup(query, mode ? mode.value : "auto");
         renderMacResults(payload, false);
         D.toast(
           payload.count
-            ? D.tr("找到 ") + payload.count + D.tr(" 台设备")
+            ? D.tr("找到 ") + D.countDevices(payload.count)
             : D.tr("没有找到匹配设备"),
           !payload.count
         );
@@ -1158,9 +1250,9 @@
     var warnings = payload.warnings || [];
     D.setText(
       "v2AnalysisSummary",
-      interfaces.length + D.tr(" 个接口") +
-        " · " + networks.length + D.tr(" 个网段") +
-        " · " + dns.length + D.tr(" 个 DNS")
+      D.countUnit(interfaces.length, " 个接口", "interface", "interfaces") +
+        " · " + D.countNetworks(networks.length) +
+        " · " + D.countUnit(dns.length, " 个 DNS", "DNS server", "DNS servers")
     );
     var warningBox = doc("v2AnalysisWarnings");
     if (warningBox) {
@@ -1182,7 +1274,7 @@
             "v2-subtle",
             D.tr("范围 ") + item.scan_range +
               " · " + D.tr("网关 ") + (item.gateway || D.tr("无")) +
-              " · " + D.tr("设备 ") + (item.device_count || 0) + "（" + D.tr("在线 ") + (item.online_count || 0) + "）"
+              " · " + D.tr("设备 ") + (item.device_count || 0) + D.tr("（") + D.tr("在线 ") + (item.online_count || 0) + D.tr("）")
           )
         );
         main.appendChild(D.el("span", "v2-subtle", D.tr("本机 MAC ") + (item.local_mac || "--")));
@@ -1331,9 +1423,9 @@
       parts = task.network_ids.slice();
     }
     if ((task.suffixes || []).length) {
-      parts.push(D.tr("后缀 ") + task.suffixes.join("、"));
+      parts.push(D.tr("后缀 ") + task.suffixes.join(D.tr("、")));
     }
-    return parts.length ? parts.join("；") : "--";
+    return parts.length ? parts.join(D.tr("；")) : "--";
   }
 
   function renderHistory(payload) {
@@ -1341,7 +1433,7 @@
     state.history.tasks = tasks;
     D.setText(
       "v2HistorySummary",
-      D.tr("共 ") + (payload.total || tasks.length) + D.tr(" 个任务") +
+      D.tr("共 ") + D.countTasks(payload.total || tasks.length) +
         (tasks.length ? " · " + D.tr("最近 ") + D.formatTime(tasks[0].finished_at, true) : "")
     );
     var tbody = doc("v2HistoryTableBody");
@@ -1569,7 +1661,7 @@
       }
     }
     if (!found && wanted) {
-      var extra = D.el("option", "", wanted + "（当前配置）");
+      var extra = D.el("option", "", wanted + D.tr("（当前配置）"));
       extra.value = wanted;
       select.appendChild(extra);
       select.value = wanted;
@@ -1774,19 +1866,160 @@
     return item;
   }
 
+  function drawerTable(headers, rows) {
+    var wrap = D.el("div", "v2-table-wrap");
+    var table = D.el("table", "v2-table v2-mini-table");
+    var thead = D.el("thead");
+    var headRow = D.el("tr");
+    headers.forEach(function (label) {
+      headRow.appendChild(D.el("th", "", D.tr(label)));
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+    var tbody = D.el("tbody");
+    rows.forEach(function (values) {
+      var row = D.el("tr");
+      values.forEach(function (value) {
+        row.appendChild(D.el("td", "", value === undefined || value === null || value === "" ? "--" : value));
+      });
+      tbody.appendChild(row);
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    return wrap;
+  }
+
+  function setDrawerControlsEnabled(enabled) {
+    ["v2DrawerSave", "v2DrawerCopyIp", "v2DrawerCopyMac"].forEach(function (id) {
+      var node = doc(id);
+      if (node) {
+        node.disabled = !enabled;
+      }
+    });
+  }
+
+  function setDrawerContentVisible(visible) {
+    var edit = document.querySelector("#v2Drawer .v2-drawer-edit");
+    var reason = doc("v2DrawerStatusReason");
+    var summary = doc("v2DrawerSummary");
+    if (edit) {
+      edit.hidden = !visible;
+    }
+    if (reason) {
+      reason.hidden = !visible;
+    }
+    if (summary) {
+      summary.hidden = !visible;
+    }
+    var sections = document.querySelectorAll("#v2Drawer .v2-drawer-section");
+    for (var index = 0; index < sections.length; index += 1) {
+      sections[index].hidden = !visible;
+    }
+  }
+
+  function resetDrawerHeader() {
+    D.setText("v2DrawerName", D.tr("设备详情"));
+    var status = doc("v2DrawerStatus");
+    if (status) {
+      D.clear(status);
+      status.className = "v2-badge";
+    }
+    var reason = doc("v2DrawerStatusReason");
+    if (reason) {
+      reason.textContent = "";
+    }
+  }
+
+  function clearDrawerFields() {
+    var nameInput = doc("v2DrawerNameInput");
+    var noteInput = doc("v2DrawerNoteInput");
+    var favorite = doc("v2DrawerFavorite");
+    if (nameInput) {
+      nameInput.value = "";
+    }
+    if (noteInput) {
+      noteInput.value = "";
+    }
+    if (favorite) {
+      favorite.checked = false;
+    }
+    ["v2DrawerSummary", "v2DrawerAddresses", "v2DrawerIpHistory", "v2DrawerEvents"].forEach(function (id) {
+      var node = doc(id);
+      if (node) {
+        D.clear(node);
+      }
+    });
+  }
+
+  function showDrawerLoading() {
+    var loading = doc("v2DrawerLoading");
+    var error = doc("v2DrawerError");
+    if (loading) {
+      loading.hidden = false;
+    }
+    if (error) {
+      error.hidden = true;
+    }
+    resetDrawerHeader();
+    clearDrawerFields();
+    setDrawerContentVisible(false);
+    var body = document.querySelector("#v2Drawer .v2-drawer-body");
+    if (body) {
+      body.scrollTop = 0;
+    }
+    setDrawerControlsEnabled(false);
+  }
+
+  function showDrawerError(message) {
+    var loading = doc("v2DrawerLoading");
+    var error = doc("v2DrawerError");
+    var text = doc("v2DrawerErrorText");
+    var target = doc("v2DrawerSaveState");
+    if (loading) {
+      loading.hidden = true;
+    }
+    if (error) {
+      error.hidden = false;
+    }
+    if (text) {
+      text.textContent = message || D.tr("设备详情加载失败");
+    }
+    if (target) {
+      target.textContent = message || D.tr("设备详情加载失败");
+    }
+    resetDrawerHeader();
+    clearDrawerFields();
+    setDrawerContentVisible(false);
+    setDrawerControlsEnabled(false);
+  }
+
   function renderDrawer(device) {
     if (!device) {
       return;
     }
+    var loading = doc("v2DrawerLoading");
+    var error = doc("v2DrawerError");
+    if (loading) {
+      loading.hidden = true;
+    }
+    if (error) {
+      error.hidden = true;
+    }
+    setDrawerContentVisible(true);
+    setDrawerControlsEnabled(true);
     var name = doc("v2DrawerName");
     var status = doc("v2DrawerStatus");
+    var reason = doc("v2DrawerStatusReason");
     if (name) {
-      name.textContent = device.name || D.tr("设备详情");
+      name.textContent = D.deviceName(device);
     }
     if (status) {
       D.clear(status);
       status.className = "v2-badge";
-      status.appendChild(D.statusBadge(device.status, device.status_reason));
+      status.appendChild(D.statusBadge(device.status, D.statusReason(device)));
+    }
+    if (reason) {
+      reason.textContent = D.statusReason(device);
     }
     var nameInput = doc("v2DrawerNameInput");
     var noteInput = doc("v2DrawerNoteInput");
@@ -1816,9 +2049,33 @@
       summary.appendChild(drawerField("状态", D.statusLabel(device.status)));
       summary.appendChild(drawerField("首次发现", D.formatTime(device.first_seen, false)));
       summary.appendChild(drawerField("最近发现", D.formatTime(device.last_seen, false)));
+      summary.appendChild(drawerField("最近检测", D.formatTime(device.last_checked, false)));
       summary.appendChild(drawerField("发现次数", device.seen_count || 0));
       summary.appendChild(drawerField("随机 MAC", device.random_mac ? D.tr("是") : D.tr("否")));
       summary.appendChild(drawerField("设备 ID", device.device_id));
+    }
+    var addresses = doc("v2DrawerAddresses");
+    if (addresses) {
+      D.clear(addresses);
+      var addressItems = device.addresses || [];
+      if (!addressItems.length) {
+        addresses.appendChild(D.el("div", "v2-empty", D.tr("暂无地址记录。")));
+      } else {
+        addresses.appendChild(
+          drawerTable(
+            ["IP 地址", "MAC 地址", "网卡", "最近发现", "状态"],
+            addressItems.map(function (item) {
+              return [
+                item.ip,
+                item.mac,
+                item.interface,
+                D.formatTime(item.last_seen, false),
+                item.is_current ? D.tr("当前") : D.tr("历史")
+              ];
+            })
+          )
+        );
+      }
     }
     var history = doc("v2DrawerIpHistory");
     if (history) {
@@ -1827,27 +2084,19 @@
       if (!items.length) {
         history.appendChild(D.el("div", "v2-empty", D.tr("暂无 IP 历史。")));
       } else {
-        var wrap = D.el("div", "v2-table-wrap");
-        var table = D.el("table", "v2-table v2-mini-table");
-        var thead = D.el("thead");
-        var headRow = D.el("tr");
-        ["IP 地址", "首次发现", "最近发现", "状态"].forEach(function (label) {
-          headRow.appendChild(D.el("th", "", D.tr(label)));
-        });
-        thead.appendChild(headRow);
-        table.appendChild(thead);
-        var tbody = D.el("tbody");
-        items.forEach(function (item) {
-          var row = D.el("tr");
-          row.appendChild(D.el("td", "", item.ip || "--"));
-          row.appendChild(D.el("td", "", D.formatTime(item.first_seen, false)));
-          row.appendChild(D.el("td", "", D.formatTime(item.last_seen, false)));
-          row.appendChild(D.el("td", "", item.is_current ? D.tr("当前") : D.tr("历史")));
-          tbody.appendChild(row);
-        });
-        table.appendChild(tbody);
-        wrap.appendChild(table);
-        history.appendChild(wrap);
+        history.appendChild(
+          drawerTable(
+            ["IP 地址", "首次发现", "最近发现", "状态"],
+            items.map(function (item) {
+              return [
+                item.ip,
+                D.formatTime(item.first_seen, false),
+                D.formatTime(item.last_seen, false),
+                item.is_current ? D.tr("当前") : D.tr("历史")
+              ];
+            })
+          )
+        );
       }
     }
     var events = doc("v2DrawerEvents");
@@ -1857,7 +2106,7 @@
       if (!list.length) {
         events.appendChild(D.el("div", "v2-empty", D.tr("暂无设备事件。")));
       } else {
-        list.slice(0, 30).forEach(function (event) {
+        list.slice(0, 50).forEach(function (event) {
           var row = D.el("div", "v2-timeline-item");
           row.appendChild(D.el("span", "v2-timeline-dot"));
           var body = D.el("div", "v2-timeline-body");
@@ -1865,8 +2114,9 @@
           line.appendChild(D.el("strong", "", D.eventLabel(event.kind) || event.kind || "--"));
           line.appendChild(D.el("span", "v2-muted", D.formatTime(event.created_at, true)));
           body.appendChild(line);
-          if (event.detail) {
-            body.appendChild(D.el("span", "v2-subtle", event.detail));
+          var detail = D.eventDetail(event);
+          if (detail) {
+            body.appendChild(D.el("span", "v2-subtle", detail));
           }
           row.appendChild(body);
           events.appendChild(row);
@@ -1876,12 +2126,18 @@
   }
 
   async function loadDrawer(deviceId) {
+    var token = ++state.drawer.token;
+    state.drawer.currentId = deviceId || "";
     var target = doc("v2DrawerSaveState");
     if (target) {
       target.textContent = D.tr("正在读取设备…");
     }
+    showDrawerLoading();
     try {
       var payload = await D.API.device(deviceId);
+      if (token !== state.drawer.token) {
+        return;
+      }
       if (!payload.device) {
         throw new Error(D.tr("设备不存在"));
       }
@@ -1891,9 +2147,11 @@
         target.textContent = D.tr("设备档案读取于 ") + D.formatTime(new Date(), false);
       }
     } catch (error) {
-      if (target) {
-        target.textContent = error.message || D.tr("设备详情加载失败");
+      if (token !== state.drawer.token) {
+        return;
       }
+      state.drawer.device = null;
+      showDrawerError(error.message || D.tr("设备详情加载失败"));
       D.toast(error.message || D.tr("设备详情加载失败"), true);
     }
   }
@@ -1953,6 +2211,14 @@
       copyMac.addEventListener("click", function () {
         if (state.drawer.device) {
           D.copy(state.drawer.device.mac, "MAC");
+        }
+      });
+    }
+    var retry = doc("v2DrawerRetry");
+    if (retry) {
+      retry.addEventListener("click", function () {
+        if (state.drawer.currentId) {
+          loadDrawer(state.drawer.currentId);
         }
       });
     }

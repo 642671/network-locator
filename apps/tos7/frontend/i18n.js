@@ -398,7 +398,7 @@
     "浅色": "Light",
     "深色": "Dark",
     "跟随系统": "System",
-    "中文": "中文",
+    "中文": "Chinese",
     "设备总数": "Total devices",
     "在线设备": "Online devices",
     "活动网段": "Active networks",
@@ -725,10 +725,55 @@
 
   Object.assign(EN, {
     "预览模式：设备、统计与扫描历史均为界面示例数据。": "Preview mode: devices, statistics, and scan history are sample UI data.",
-    "预览模式：接口、DNS 与设备分布均为界面示例数据。": "Preview mode: interfaces, DNS, and device distribution are sample UI data."
+    "预览模式：接口、DNS 与设备分布均为界面示例数据。": "Preview mode: interfaces, DNS, and device distribution are sample UI data.",
+    "最近一次完整扫描未发现该设备": "The latest complete scan did not find this device",
+    "邻居表中存在，但最近一次探测未确认可达": "Present in the neighbor table, but the latest probe did not confirm reachability",
+    "最近一次扫描确认在线": "Confirmed online by the latest scan",
+    "尚未检测": "Not checked yet",
+    "超过 ": "More than ",
+    " 分钟未检测": " minutes since the last check",
+    "尚无明确结果": "No definitive result yet",
+    "预览示例数据": "Preview sample data",
+    " 重新上线": " came back online",
+    "完整扫描中未发现": "Not found in the complete scan",
+    "重命名为 ": "Renamed to ",
+    "已清空名称": "Name cleared",
+    "备注已更新": "Note updated",
+    "设备档案已更新": "Device profile updated",
+    "地址历史": "Address history",
+    "上一页": "Previous",
+    "下一页": "Next",
+    "每页": "Per page",
+    " 条": " items",
+    "重试": "Retry",
+    "地址": "Address",
+    "暂无地址记录。": "No address records yet.",
+    "最近检测": "Last checked",
+    "备注不能超过 500 个字符": "The note cannot exceed 500 characters",
+    "当前没有可扫描的网段": "There is no scannable network right now",
+    "另一个扫描任务正在进行中": "Another scan task is already running",
+    "没有可用的默认网关": "No default gateway is available",
+    "扫描服务尚未就绪": "The scan service is not ready",
+    "扫描锁不可用": "The scan lock is unavailable",
+    "设备名称不能超过 80 个字符": "The device name cannot exceed 80 characters",
+    "设备扫描正在进行中": "A device scan is already running",
+    "数据存储尚未就绪": "The data store is not ready",
+    "来自当前扫描结果，尚未写入设备档案": "From the current scan result; not yet saved to a device profile",
+    "当前": "Current",
+    "历史": "History"
   });
 
-  Object.assign(EN, {"；": "; "});
+  Object.assign(EN, {
+    "第": "Page",
+    " 页": "",
+    "：": ": ",
+    "，": ", ",
+    "。": ".",
+    "；": "; ",
+    "、": ", ",
+    "（": " (",
+    "）": ")"
+  });
 
   var MESSAGE_RULES = [
     [/^已跳过虚拟网卡 (.+)$/, "Skipped virtual interface $1"],
@@ -747,7 +792,10 @@
     [/^最多选择 (\\d+) 个网段$/, "Select at most $1 networks"],
     [/^网段选择格式不正确$/, "Invalid network selection format"],
     [/^无效的 MAC 后缀$/, "Invalid MAC suffix"],
-    [/^设备清单扫描已在进行中$/, "A device inventory scan is already running"]
+    [/^设备清单扫描已在进行中$/, "A device inventory scan is already running"],
+    [/^扫描结果 ([0-9A-Fa-f]+)$/, "Scan result $1"],
+    [/^示例：目标范围不可达$/, "Example: the target range is unreachable"],
+    [/^一次最多查询 (\\d+) 个 MAC$/, "Look up at most $1 MAC addresses at a time"]
   ];
 
   var locale = detectLocale();

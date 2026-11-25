@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import threading
 import time
 from datetime import datetime, timedelta
@@ -17,6 +18,62 @@ FRONTEND = ROOT / "frontend"
 APP_ID = "network-locator"
 APP_VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 PREVIEW_VERSION = APP_VERSION + "-preview"
+
+# Preview data is synthetic. These strings are sample content, not user data,
+# so the preview API swaps them when the browser asks for English. Production
+# records are never translated here.
+_PREVIEW_EN = {
+    "核心网关": "Core gateway",
+    "本机 NAS": "Local NAS",
+    "客厅 Apple TV": "Living room Apple TV",
+    "设计工作站": "Design workstation",
+    "Synology 备份机": "Synology backup",
+    "访客 iPad": "Guest iPad",
+    "智能插座": "Smart plug",
+    "临时设备": "Temporary device",
+    "Raspberry Pi 网关": "Raspberry Pi gateway",
+    "客厅电视柜": "TV cabinet, living room",
+    "设计部主力机": "Primary design workstation",
+    "每日 02:00 备份": "Daily backup at 02:00",
+    "预览示例数据": "Preview sample data",
+    "首次发现": "First seen",
+    "备注已更新": "Note updated",
+    "未知": "Unknown",
+    "未知厂商": "Unknown vendor",
+    "设备不存在": "Device not found",
+    "扫描任务不存在": "Scan task not found",
+    "请输入至少一个 MAC 查询": "Enter at least one MAC query",
+    "请输入完整的 MAC、前缀或后缀": "Enter a complete MAC, prefix, or suffix",
+    "请输入有效的 IPv4 地址或主机名": "Enter a valid IPv4 address or hostname",
+    "至少选择一个网段": "Select at least one network",
+    "网段选择格式不正确": "Invalid network selection",
+    "预览模式会跳过虚拟网卡 docker0": "Preview skips the virtual docker0 interface",
+    "预览模式：docker0 已作为虚拟网卡跳过": "Preview: docker0 was skipped as a virtual interface",
+    "预览模式：任务与结果为界面示例数据": "Preview: tasks and results are sample UI data",
+    "预览模式：设备、统计与扫描历史均为界面示例数据。": "Preview: devices, statistics, and scan history are sample UI data.",
+    "预览模式：未执行真实扫描，返回界面示例数据。": "Preview: no real scan ran; sample UI data is returned.",
+    "预览模式：接口、DNS 与设备分布均为界面示例数据。": "Preview: interfaces, DNS, and device distribution are sample UI data.",
+    "预览模式：自定义范围由示例网段代替，未执行真实扫描。": "Preview: sample networks replace custom ranges; no real scan ran.",
+    "示例：目标范围不可达": "Example: the target range is unreachable",
+    "所选网段当前不可用，请刷新网段后重试": "The selected networks are unavailable. Refresh and try again.",
+    "所选网段当前不可用：": "Selected networks are unavailable: ",
+}
+
+
+def localize_preview(value, lang: str):
+    if str(lang or "").lower().startswith("en"):
+        if isinstance(value, str):
+            if value in _PREVIEW_EN:
+                return _PREVIEW_EN[value]
+            match = re.match(r"^扫描结果 ([0-9A-F]{4})$", value)
+            if match:
+                return "Scan result " + match.group(1)
+            return value
+        if isinstance(value, list):
+            return [localize_preview(item, lang) for item in value]
+        if isinstance(value, dict):
+            return {key: localize_preview(item, lang) for key, item in value.items()}
+    return value
 
 NETWORKS = [
     {
@@ -382,6 +439,7 @@ def _v2_device(
     device = {
         "device_id": device_id,
         "name": name,
+        "name_fallback": False,
         "display_name": "",
         "note": "",
         "favorite": False,
@@ -395,6 +453,8 @@ def _v2_device(
         "status": status,
         "status_state": "LOCAL" if status == "online" else "STALE" if status == "unknown" else "REACHABLE",
         "status_reason": "预览示例数据",
+        "status_reason_code": "preview_sample",
+        "status_reason_args": [],
         "random_mac": False,
         "first_seen": first,
         "last_seen": last,
@@ -403,6 +463,7 @@ def _v2_device(
         "search_text": " ".join([name, ip, mac, interface, network_id]),
     }
     device.update(extra)
+    device["_base_name"] = name
     addresses = [
         {
             "mac": mac,
@@ -431,6 +492,8 @@ def _v2_device(
             "device_id": device_id,
             "kind": "discovered",
             "detail": "首次发现",
+            "detail_code": "discovered",
+            "detail_args": [ip, mac],
             "created_at": first,
         }
     ]
@@ -483,6 +546,8 @@ class V2PreviewState:
                 "device_id": "dev-sample-4",
                 "kind": "ip_changed",
                 "detail": old_ip + " → " + target["ip"],
+                "detail_code": "ip_changed",
+                "detail_args": [old_ip, target["ip"]],
                 "created_at": _v2_iso(6),
             }
         )
@@ -492,6 +557,8 @@ class V2PreviewState:
                 "device_id": "dev-sample-4",
                 "kind": "note",
                 "detail": "备注已更新",
+                "detail_code": "note",
+                "detail_args": [],
                 "created_at": _v2_iso(120),
             }
         )
@@ -600,11 +667,32 @@ class V2PreviewState:
             "last_scan_at": self.tasks[0]["finished_at"] if self.tasks else "",
         }
 
+    def add_bulk_devices(self, count: int) -> None:
+        """Generate synthetic devices for pagination and 10k-row UI checks."""
+
+        with self.lock:
+            for index in range(max(0, int(count))):
+                ip = f"10.99.{index // 254}.{index % 254 + 1}"
+                mac = f"02-99-{(index // 65536) % 256:02X}-{(index // 256) % 256:02X}-{index % 256:02X}"
+                self.devices.append(
+                    _v2_device(
+                        f"dev-bulk-{index}",
+                        ip,
+                        mac,
+                        f"Bulk device {index}",
+                        "enp1s0",
+                        "enp1s0|10.99.0.0/16",
+                        "online",
+                        index % 240,
+                    )
+                )
+
     def _public(self, device: dict) -> dict:
         item = dict(device)
         item.pop("addresses", None)
         item.pop("events", None)
         item.pop("ip_history", None)
+        item.pop("_base_name", None)
         return item
 
     def summary(self) -> dict:
@@ -637,7 +725,7 @@ class V2PreviewState:
                     "sample": True,
                 },
                 "vendor_count": 205,
-                "schema_version": 1,
+                "schema_version": 2,
             }
 
     def list_devices(self, query: str, status: str, favorite: object, sort: str, direction: str, limit: int, offset: int) -> dict:
@@ -690,7 +778,9 @@ class V2PreviewState:
         with self.lock:
             for item in self.devices:
                 if item["device_id"] == device_id:
-                    return dict(item)
+                    device = dict(item)
+                    device.pop("_base_name", None)
+                    return device
         return None
 
     def update_device(self, device_id: str, patch: dict):
@@ -700,13 +790,26 @@ class V2PreviewState:
                     continue
                 if "display_name" in patch:
                     item["display_name"] = str(patch.get("display_name") or "")[:80]
-                    item["name"] = item["display_name"] or item["name"]
+                    item["name_fallback"] = not bool(item["display_name"])
+                    item["name"] = item["display_name"] or item.get("_base_name") or "未命名设备"
                 if "note" in patch:
                     item["note"] = str(patch.get("note") or "")[:500]
                 if "favorite" in patch:
                     item["favorite"] = bool(patch.get("favorite"))
-                item["last_checked"] = _v2_iso(0)
-                return dict(item)
+                item.setdefault("events", []).append(
+                    {
+                        "event_id": device_id + "-e" + str(len(item.get("events") or []) + 1),
+                        "device_id": device_id,
+                        "kind": "note",
+                        "detail": "设备档案已更新",
+                        "detail_code": "profile_updated",
+                        "detail_args": [],
+                        "created_at": _v2_iso(0),
+                    }
+                )
+                device = dict(item)
+                device.pop("_base_name", None)
+                return device
         return None
 
     def scan_inventory(self, body: dict) -> dict:
@@ -907,7 +1010,7 @@ class V2PreviewState:
                 "sample": True,
             },
             "vendor_count": 205,
-            "schema_version": 1,
+            "schema_version": 2,
             "capabilities": ["store/sqlite", "devices", "scan-history", "mac-lookup", "network-analysis", "custom-ranges", "pause-resume"],
         }
 
@@ -1051,6 +1154,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def _json(self, status: int, payload: dict) -> None:
+        payload = localize_preview(payload, self.headers.get("Accept-Language", ""))
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -1283,8 +1387,16 @@ def main() -> int:
         action="store_true",
         help="complete scans without returning a matching device",
     )
+    parser.add_argument(
+        "--bulk",
+        type=int,
+        default=0,
+        help="append N synthetic devices for large-table checks",
+    )
     args = parser.parse_args()
     STATE = PreviewState(no_match=args.no_match)
+    if args.bulk > 0:
+        V2.add_bulk_devices(args.bulk)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), PreviewHandler)
     print(f"Preview: http://127.0.0.1:{args.port}/")
     try:

@@ -81,22 +81,11 @@ def _network_payloads(targets: Any) -> list[dict[str, Any]]:
 
 def _analysis(store: Store) -> dict[str, Any]:
     targets, warnings = discover_networks()
-    devices = store.list_devices(limit=5000)["devices"]
-    counts: dict[str, dict[str, int]] = {}
-    vendors: dict[str, int] = {}
-    for device in devices:
-        key = str(device.get("network_id") or device.get("interface") or "未知")
-        bucket = counts.setdefault(
-            key, {"total": 0, "online": 0, "offline": 0, "unknown": 0}
-        )
-        bucket["total"] += 1
-        status = str(device.get("status") or "unknown")
-        bucket[status] = bucket.get(status, 0) + 1
-        vendor = str(device.get("vendor") or "未知厂商")
-        vendors[vendor] = vendors.get(vendor, 0) + 1
+    payloads = _network_payloads(targets)
+    store.record_network_snapshot(payloads)
+    counts = store.network_counts()
     interfaces = []
-    for target in targets:
-        payload = network_target_payload(target)
+    for payload in payloads:
         bucket = counts.get(payload["network_id"], {})
         payload["device_count"] = int(bucket.get("total", 0))
         payload["online_count"] = int(bucket.get("online", 0))
@@ -115,26 +104,21 @@ def _analysis(store: Store) -> dict[str, Any]:
             }
             for key, value in sorted(counts.items())
         ],
-        "vendors": [
-            {"vendor": vendor, "count": count}
-            for vendor, count in sorted(vendors.items(), key=lambda item: -item[1])[:12]
-        ],
+        "vendors": store.vendor_counts(12),
+        "known_interfaces": store.list_interfaces(),
+        "known_segments": store.list_segments(),
     }
 
 
 def _summary(handler: Any) -> dict[str, Any]:
     store = _store(handler)
     targets, warnings = discover_networks()
-    devices = store.list_devices(limit=5000)["devices"]
-    by_network: dict[str, int] = {}
-    for device in devices:
-        key = str(device.get("network_id") or "")
-        if key:
-            by_network[key] = by_network.get(key, 0) + 1
+    payloads = _network_payloads(targets)
+    store.record_network_snapshot(payloads)
+    by_network = store.network_counts()
     networks = []
-    for target in targets:
-        payload = network_target_payload(target)
-        payload["device_count"] = by_network.get(payload["network_id"], 0)
+    for payload in payloads:
+        payload["device_count"] = int(by_network.get(payload["network_id"], {}).get("total", 0))
         networks.append(payload)
     settings = store.get_settings()
     return {
@@ -148,6 +132,8 @@ def _summary(handler: Any) -> dict[str, Any]:
         "storage": store.storage_info(),
         "vendor_count": vendor_count(),
         "schema_version": SCHEMA_VERSION,
+        "known_interfaces": store.list_interfaces(),
+        "known_segments": store.list_segments(),
     }
 
 
@@ -236,14 +222,16 @@ def _inventory_scan(handler: Any) -> None:
         devices, probe_warnings = probe_network_devices(targets)
         finished_at = _now()
         total = sum(target.host_count for target in targets)
+        network_payloads = _network_payloads(targets)
+        store.record_network_snapshot(network_payloads)
         snapshot = {
             "job_id": "inv_" + uuid.uuid4().hex,
             "status": "completed",
             "started_at": started_at,
             "finished_at": finished_at,
-            "networks": _network_payloads(targets),
+            "networks": network_payloads,
             "selected_network_ids": [
-                payload["network_id"] for payload in _network_payloads(targets)
+                payload["network_id"] for payload in network_payloads
             ],
             "suffixes": [],
             "custom_ranges": custom_ranges,
@@ -256,7 +244,7 @@ def _inventory_scan(handler: Any) -> None:
         task = store.record_scan_task(
             snapshot, kind="inventory", custom_ranges=custom_ranges
         )
-        result = store.list_devices(limit=5000)
+        result = store.list_devices(limit=500)
         handler._send_json(
             200,
             {

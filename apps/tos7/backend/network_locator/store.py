@@ -28,7 +28,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from .oui import mac_kind, normalize_mac, vendor_for_mac
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 APP_ID = "network-locator"
 
 ONLINE_STATES = {"LOCAL", "REACHABLE"}
@@ -99,6 +99,10 @@ def _device_label(row: Mapping[str, Any]) -> str:
     return "未命名设备"
 
 
+def _device_name_fallback(row: Mapping[str, Any]) -> bool:
+    return not str(row.get("display_name") or "").strip()
+
+
 def _status_reason(status: str, state: str, checked: datetime | None, stale_minutes: int) -> str:
     if status == "offline":
         return "最近一次完整扫描未发现该设备"
@@ -112,6 +116,23 @@ def _status_reason(status: str, state: str, checked: datetime | None, stale_minu
     if age_minutes > stale_minutes:
         return f"超过 {stale_minutes} 分钟未检测"
     return "尚无明确结果"
+
+
+def _status_reason_code(
+    status: str, state: str, checked: datetime | None, stale_minutes: int
+) -> tuple[str, list[int]]:
+    if status == "offline":
+        return "offline_not_found", []
+    if state in NEIGHBOR_STATES:
+        return "neighbor_unconfirmed", []
+    if status == "online":
+        return "online_confirmed", []
+    if checked is None:
+        return "never_checked", []
+    age_minutes = int((datetime.now() - checked).total_seconds() // 60)
+    if age_minutes > stale_minutes:
+        return "stale", [stale_minutes]
+    return "unknown", []
 
 
 def _effective_status(row: Mapping[str, Any], stale_minutes: int) -> str:
@@ -198,6 +219,8 @@ class Store:
                     device_id TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
                     kind TEXT NOT NULL,
                     detail TEXT NOT NULL DEFAULT '',
+                    detail_code TEXT NOT NULL DEFAULT '',
+                    detail_args TEXT NOT NULL DEFAULT '[]',
                     task_id TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL
                 );
@@ -222,11 +245,50 @@ class Store:
                     error TEXT NOT NULL DEFAULT '',
                     results TEXT NOT NULL DEFAULT '[]'
                 );
+                CREATE TABLE IF NOT EXISTS scan_results (
+                    result_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id TEXT NOT NULL REFERENCES scan_tasks(task_id) ON DELETE CASCADE,
+                    device_id TEXT NOT NULL DEFAULT '',
+                    ip TEXT NOT NULL DEFAULT '',
+                    mac TEXT NOT NULL DEFAULT '',
+                    interface TEXT NOT NULL DEFAULT '',
+                    network_id TEXT NOT NULL DEFAULT '',
+                    state TEXT NOT NULL DEFAULT '',
+                    observed_at TEXT NOT NULL DEFAULT '',
+                    matched_suffixes TEXT NOT NULL DEFAULT '[]',
+                    raw TEXT NOT NULL DEFAULT '{}',
+                    UNIQUE(task_id, mac, ip, interface)
+                );
+                CREATE TABLE IF NOT EXISTS network_interfaces (
+                    interface TEXT PRIMARY KEY,
+                    alias TEXT NOT NULL DEFAULT '',
+                    local_ip TEXT NOT NULL DEFAULT '',
+                    prefix_length INTEGER NOT NULL DEFAULT 0,
+                    gateway TEXT NOT NULL DEFAULT '',
+                    network TEXT NOT NULL DEFAULT '',
+                    broadcast TEXT NOT NULL DEFAULT '',
+                    scan_range TEXT NOT NULL DEFAULT '',
+                    host_count INTEGER NOT NULL DEFAULT 0,
+                    local_mac TEXT NOT NULL DEFAULT '',
+                    first_seen TEXT NOT NULL,
+                    last_seen TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS network_segments (
+                    network_id TEXT PRIMARY KEY,
+                    interface TEXT NOT NULL DEFAULT '',
+                    cidr TEXT NOT NULL DEFAULT '',
+                    gateway TEXT NOT NULL DEFAULT '',
+                    host_count INTEGER NOT NULL DEFAULT 0,
+                    first_seen TEXT NOT NULL,
+                    last_seen TEXT NOT NULL
+                );
                 CREATE INDEX IF NOT EXISTS idx_address_device ON device_addresses(device_id);
                 CREATE INDEX IF NOT EXISTS idx_address_mac ON device_addresses(mac);
                 CREATE INDEX IF NOT EXISTS idx_address_ip ON device_addresses(ip, interface);
                 CREATE INDEX IF NOT EXISTS idx_events_device ON device_events(device_id, created_at);
                 CREATE INDEX IF NOT EXISTS idx_tasks_time ON scan_tasks(finished_at);
+                CREATE INDEX IF NOT EXISTS idx_results_task ON scan_results(task_id);
+                CREATE INDEX IF NOT EXISTS idx_results_device ON scan_results(device_id);
                 CREATE INDEX IF NOT EXISTS idx_devices_network ON devices(network_current);
                 CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status);
                 """
@@ -239,8 +301,41 @@ class Store:
                     "INSERT INTO meta(key, value) VALUES('schema_version', ?)",
                     (str(SCHEMA_VERSION),),
                 )
-            # Future migrations compare the stored version and upgrade step by
-            # step. Version 1 is the initial V2 schema.
+            else:
+                stored = int(str(current["value"] or "0"))
+                if stored > SCHEMA_VERSION:
+                    raise RuntimeError(
+                        f"database schema {stored} is newer than supported {SCHEMA_VERSION}"
+                    )
+                if stored < SCHEMA_VERSION:
+                    self._migrate(connection, stored)
+                    connection.execute(
+                        "UPDATE meta SET value = ? WHERE key = 'schema_version'",
+                        (str(SCHEMA_VERSION),),
+                    )
+
+    @staticmethod
+    def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
+        return {
+            str(row["name"])
+            for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+
+    def _migrate(self, connection: sqlite3.Connection, from_version: int) -> None:
+        """Upgrade an existing database in place, preserving every record."""
+
+        if from_version < 2:
+            event_columns = self._columns(connection, "device_events")
+            if "detail_code" not in event_columns:
+                connection.execute(
+                    "ALTER TABLE device_events ADD COLUMN detail_code TEXT NOT NULL DEFAULT ''"
+                )
+            if "detail_args" not in event_columns:
+                connection.execute(
+                    "ALTER TABLE device_events ADD COLUMN detail_args TEXT NOT NULL DEFAULT '[]'"
+                )
+        # Tables added in version 2 are created by the IF NOT EXISTS block in
+        # _initialize before this method runs, so only column upgrades remain.
 
     # -------------------------------------------------------------- settings
     def get_settings(self) -> dict[str, Any]:
@@ -320,6 +415,7 @@ class Store:
             "directory": str(self.path.parent),
             "size_bytes": size,
             "writable": os.access(str(self.path.parent), os.W_OK),
+            "schema_version": SCHEMA_VERSION,
         }
 
     # --------------------------------------------------------------- devices
@@ -406,11 +502,21 @@ class Store:
         detail: str,
         task_id: str,
         created_at: str,
+        detail_code: str = "",
+        detail_args: Sequence[Any] | None = None,
     ) -> None:
         connection.execute(
-            "INSERT INTO device_events(device_id, kind, detail, task_id, created_at) "
-            "VALUES(?, ?, ?, ?, ?)",
-            (device_id, kind, detail, task_id, created_at),
+            "INSERT INTO device_events(device_id, kind, detail, detail_code, "
+            "detail_args, task_id, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)",
+            (
+                device_id,
+                kind,
+                detail,
+                detail_code,
+                json.dumps(list(detail_args or []), ensure_ascii=False),
+                task_id,
+                created_at,
+            ),
         )
 
     def _upsert_address(
@@ -427,8 +533,8 @@ class Store:
     ) -> None:
         connection.execute(
             "UPDATE device_addresses SET is_current = 0 "
-            "WHERE device_id = ? AND interface = ? AND (ip <> ? OR mac <> ?)",
-            (device_id, interface, ip, mac),
+            "WHERE device_id = ? AND (ip <> ? OR mac <> ? OR interface <> ?)",
+            (device_id, ip, mac, interface),
         )
         connection.execute(
             "INSERT INTO device_addresses("
@@ -448,20 +554,22 @@ class Store:
         task_id: str = "",
         complete: bool = False,
         networks: Sequence[str] | None = None,
-    ) -> dict[str, int]:
+    ) -> dict[str, Any]:
         """Persist scan observations and return a change summary."""
 
         now = datetime.now()
         now_text = now.isoformat(timespec="seconds")
         observed_ids: set[str] = set()
-        summary = {
+        summary: dict[str, Any] = {
             "observed": 0,
             "new_devices": 0,
             "ip_changes": 0,
             "mac_changes": 0,
             "offline_devices": 0,
             "online_devices": 0,
+            "matches": [],
         }
+        seen_observations: set[str] = set()
         network_list = [str(item) for item in (networks or []) if str(item)]
         with self._lock:
             connection = self._connect()
@@ -479,6 +587,10 @@ class Store:
                     state = str(item.get("state") or "").upper()
                     if state not in VALID_STATES:
                         state = ""
+                    observation_key = "|".join((mac, ip, interface, network_id, state))
+                    if observation_key in seen_observations:
+                        continue
+                    seen_observations.add(observation_key)
                     device = self._find_device_by_mac(connection, mac)
                     if device is None:
                         device = self._find_device_by_ip(connection, ip, interface, now)
@@ -500,6 +612,8 @@ class Store:
                             f"{ip} · {mac}",
                             task_id,
                             now_text,
+                            detail_code="discovered",
+                            detail_args=[ip, mac],
                         )
                     device_id = str(device["device_id"])
                     previous_ip = str(device["ip_current"] or "")
@@ -513,6 +627,8 @@ class Store:
                             f"{previous_ip} → {ip}",
                             task_id,
                             now_text,
+                            detail_code="ip_changed",
+                            detail_args=[previous_ip, ip],
                         )
                         summary["ip_changes"] += 1
                     if previous_mac and previous_mac != mac:
@@ -523,6 +639,8 @@ class Store:
                             f"{previous_mac} → {mac}",
                             task_id,
                             now_text,
+                            detail_code="mac_changed",
+                            detail_args=[previous_mac, mac],
                         )
                         summary["mac_changes"] += 1
                     status = "online" if state in ONLINE_STATES else "unknown"
@@ -534,6 +652,8 @@ class Store:
                             f"{ip} 重新上线",
                             task_id,
                             now_text,
+                            detail_code="online",
+                            detail_args=[ip],
                         )
                     if status == "online":
                         summary["online_devices"] += 1
@@ -571,6 +691,16 @@ class Store:
                     )
                     observed_ids.add(device_id)
                     summary["observed"] += 1
+                    summary["matches"].append(
+                        {
+                            "device_id": device_id,
+                            "mac": mac,
+                            "ip": ip,
+                            "interface": interface,
+                            "network_id": network_id,
+                            "state": state,
+                        }
+                    )
 
                 if complete and network_list:
                     placeholders = ",".join("?" for _ in network_list)
@@ -594,6 +724,8 @@ class Store:
                             "完整扫描中未发现",
                             task_id,
                             now_text,
+                            detail_code="offline",
+                            detail_args=[],
                         )
                         summary["offline_devices"] += 1
                 connection.commit()
@@ -668,6 +800,9 @@ class Store:
         row = dict(row)
         checked = _parse_time(row.get("last_checked"))
         vendor = str(row.get("vendor") or "")
+        reason_code, reason_args = _status_reason_code(
+            status, str(row.get("status_state") or ""), checked, stale_minutes
+        )
         search_parts = (
             _device_label(row),
             row.get("display_name"),
@@ -681,6 +816,7 @@ class Store:
         return {
             "device_id": row["device_id"],
             "name": _device_label(row),
+            "name_fallback": _device_name_fallback(row),
             "display_name": row.get("display_name") or "",
             "note": row.get("note") or "",
             "favorite": bool(row.get("favorite")),
@@ -694,6 +830,8 @@ class Store:
             "status": status,
             "status_state": row.get("status_state") or "",
             "status_reason": _status_reason(status, str(row.get("status_state") or ""), checked, stale_minutes),
+            "status_reason_code": reason_code,
+            "status_reason_args": reason_args,
             "random_mac": bool(row.get("random_mac")),
             "first_seen": row.get("first_seen") or "",
             "last_seen": row.get("last_seen") or "",
@@ -724,7 +862,16 @@ class Store:
         effective = _effective_status(row, stale_minutes)
         detail = self._device_summary(row, effective, stale_minutes)
         detail["addresses"] = [dict(item) for item in addresses]
-        detail["events"] = [dict(item) for item in events]
+        event_items: list[dict[str, Any]] = []
+        for item in events:
+            event = dict(item)
+            try:
+                event["detail_args"] = json.loads(event.get("detail_args") or "[]")
+            except (TypeError, ValueError):
+                event["detail_args"] = []
+            event_items.append(event)
+        detail["events"] = event_items
+        detail["event_count"] = len(event_items)
         detail["ip_history"] = self._ip_history(detail["addresses"])
         return detail
 
@@ -762,26 +909,36 @@ class Store:
     def update_device(self, device_id: str, patch: Mapping[str, Any]) -> dict[str, Any] | None:
         fields: list[str] = []
         values: list[Any] = []
-        events: list[tuple[str, str]] = []
+        events: list[tuple[str, str, str, list[Any]]] = []
         if "display_name" in patch:
             name = str(patch.get("display_name") or "").strip()
             if len(name) > 80:
                 raise ValueError("设备名称不能超过 80 个字符")
             fields.append("display_name = ?")
             values.append(name)
-            events.append(("renamed", name or "（已清空名称）"))
+            if name:
+                events.append(("renamed", f"重命名为 {name}", "renamed", [name]))
+            else:
+                events.append(("renamed", "已清空名称", "renamed_cleared", []))
         if "note" in patch:
             note = str(patch.get("note") or "").strip()
             if len(note) > 500:
                 raise ValueError("备注不能超过 500 个字符")
             fields.append("note = ?")
             values.append(note)
-            events.append(("note", "备注已更新"))
+            events.append(("note", "备注已更新", "note", []))
         if "favorite" in patch:
             favorite = 1 if patch.get("favorite") else 0
             fields.append("favorite = ?")
             values.append(favorite)
-            events.append(("favorite", "已收藏" if favorite else "已取消收藏"))
+            events.append(
+                (
+                    "favorite",
+                    "已收藏" if favorite else "已取消收藏",
+                    "favorite_added" if favorite else "favorite_removed",
+                    [],
+                )
+            )
         if not fields:
             return self.get_device(device_id)
         now_text = _now()
@@ -798,8 +955,17 @@ class Store:
                 f"UPDATE devices SET {', '.join(fields)} WHERE device_id = ?",
                 tuple(values),
             )
-            for kind, detail in events:
-                self._event(connection, device_id, kind, detail, "", now_text)
+            for kind, detail, detail_code, detail_args in events:
+                self._event(
+                    connection,
+                    device_id,
+                    kind,
+                    detail,
+                    "",
+                    now_text,
+                    detail_code=detail_code,
+                    detail_args=detail_args,
+                )
         return self.get_device(device_id)
     # ---------------------------------------------------------- scan history
     def record_scan_task(
@@ -821,6 +987,12 @@ class Store:
             complete=complete,
             networks=range_names,
         )
+        matched_devices = {
+            (str(item.get("mac") or ""), str(item.get("ip") or ""), str(item.get("interface") or "")): str(
+                item.get("device_id") or ""
+            )
+            for item in summary.get("matches", [])
+        }
         started_at = str(snapshot.get("started_at") or _now())
         finished_at = str(snapshot.get("finished_at") or _now())
         row_values = (
@@ -860,6 +1032,36 @@ class Store:
                 "error = excluded.error, results = excluded.results",
                 row_values,
             )
+            connection.execute("DELETE FROM scan_results WHERE task_id = ?", (task_id,))
+            for result in results:
+                mac = normalize_mac(result.get("mac"))
+                ip = str(result.get("ip") or "").strip()
+                interface = str(result.get("interface") or "")
+                if not mac or not ip:
+                    continue
+                device_id = matched_devices.get((mac, ip, interface), "")
+                connection.execute(
+                    "INSERT INTO scan_results("
+                    "task_id, device_id, ip, mac, interface, network_id, state, "
+                    "observed_at, matched_suffixes, raw"
+                    ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(task_id, mac, ip, interface) DO UPDATE SET "
+                    "device_id = excluded.device_id, state = excluded.state, "
+                    "observed_at = excluded.observed_at, "
+                    "matched_suffixes = excluded.matched_suffixes, raw = excluded.raw",
+                    (
+                        task_id,
+                        device_id,
+                        ip,
+                        mac,
+                        interface,
+                        str(result.get("scan_range") or result.get("network_id") or ""),
+                        str(result.get("state") or "").upper(),
+                        finished_at,
+                        json.dumps(result.get("matched_suffixes") or [], ensure_ascii=False),
+                        json.dumps(result, ensure_ascii=False),
+                    ),
+                )
         return self.get_task(task_id) or {}
 
     def list_tasks(self, *, limit: int = 50, offset: int = 0) -> dict[str, Any]:
@@ -901,7 +1103,153 @@ class Store:
                 item[key] = json.loads(item.get(key) or "[]")
             except (TypeError, ValueError):
                 item[key] = []
+        result_items: list[dict[str, Any]] = []
+        with self._lock, self._connect() as connection:
+            result_rows = connection.execute(
+                "SELECT * FROM scan_results WHERE task_id = ? ORDER BY result_id",
+                (task_id,),
+            ).fetchall()
+        for result_row in result_rows:
+            result = dict(result_row)
+            try:
+                result["matched_suffixes"] = json.loads(result.get("matched_suffixes") or "[]")
+            except (TypeError, ValueError):
+                result["matched_suffixes"] = []
+            raw: dict[str, Any] = {}
+            try:
+                parsed = json.loads(result.get("raw") or "{}")
+                if isinstance(parsed, dict):
+                    raw = parsed
+            except (TypeError, ValueError):
+                raw = {}
+            raw.update(
+                {
+                    "device_id": result.get("device_id") or "",
+                    "ip": result.get("ip") or "",
+                    "mac": result.get("mac") or "",
+                    "interface": result.get("interface") or "",
+                    "scan_range": result.get("network_id") or "",
+                    "state": result.get("state") or "",
+                    "matched_suffixes": result.get("matched_suffixes") or [],
+                }
+            )
+            result_items.append(raw)
+        if result_items:
+            item["results"] = result_items
         return item
+
+    # ------------------------------------------------- network observations
+    def record_network_snapshot(self, networks: Iterable[Mapping[str, Any]]) -> None:
+        """Persist the interfaces and segments seen by the latest discovery."""
+
+        now_text = _now()
+        with self._lock, self._connect() as connection:
+            for network in networks:
+                if not isinstance(network, Mapping):
+                    continue
+                interface = str(network.get("interface") or "").strip()
+                network_id = str(network.get("network_id") or "").strip()
+                if not interface and not network_id:
+                    continue
+                if not network_id:
+                    network_id = f"{interface}|{network.get('scan_range') or ''}"
+                connection.execute(
+                    "INSERT INTO network_interfaces("
+                    "interface, alias, local_ip, prefix_length, gateway, network, "
+                    "broadcast, scan_range, host_count, local_mac, first_seen, last_seen"
+                    ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(interface) DO UPDATE SET "
+                    "alias = excluded.alias, local_ip = excluded.local_ip, "
+                    "prefix_length = excluded.prefix_length, gateway = excluded.gateway, "
+                    "network = excluded.network, broadcast = excluded.broadcast, "
+                    "scan_range = excluded.scan_range, host_count = excluded.host_count, "
+                    "local_mac = excluded.local_mac, last_seen = excluded.last_seen",
+                    (
+                        interface,
+                        str(network.get("alias") or interface),
+                        str(network.get("local_ip") or ""),
+                        int(network.get("prefix_length") or 0),
+                        str(network.get("gateway") or ""),
+                        str(network.get("network") or ""),
+                        str(network.get("broadcast") or ""),
+                        str(network.get("scan_range") or ""),
+                        int(network.get("host_count") or 0),
+                        str(network.get("local_mac") or ""),
+                        now_text,
+                        now_text,
+                    ),
+                )
+                connection.execute(
+                    "INSERT INTO network_segments("
+                    "network_id, interface, cidr, gateway, host_count, first_seen, last_seen"
+                    ") VALUES(?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(network_id) DO UPDATE SET "
+                    "interface = excluded.interface, cidr = excluded.cidr, "
+                    "gateway = excluded.gateway, host_count = excluded.host_count, "
+                    "last_seen = excluded.last_seen",
+                    (
+                        network_id,
+                        interface,
+                        str(network.get("scan_range") or ""),
+                        str(network.get("gateway") or ""),
+                        int(network.get("host_count") or 0),
+                        now_text,
+                        now_text,
+                    ),
+                )
+        # Keep the snapshot even when an interface disappears from the host.
+
+    def list_interfaces(self) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM network_interfaces ORDER BY last_seen DESC, interface"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_segments(self) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM network_segments ORDER BY last_seen DESC, network_id"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def network_counts(self) -> dict[str, dict[str, int]]:
+        settings = self.get_settings()
+        stale_minutes = int(settings["stale_after_minutes"])
+        cutoff = (datetime.now() - timedelta(minutes=stale_minutes)).isoformat(timespec="seconds")
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT COALESCE(NULLIF(network_current, ''), interface_current, '') AS network_key, "
+                "COUNT(*) AS total, "
+                "SUM(CASE WHEN status = 'offline' THEN 1 ELSE 0 END) AS offline, "
+                "SUM(CASE WHEN status = 'online' AND last_checked >= ? THEN 1 ELSE 0 END) AS online "
+                "FROM devices GROUP BY network_key",
+                (cutoff,),
+            ).fetchall()
+        counts: dict[str, dict[str, int]] = {}
+        for row in rows:
+            total = int(row["total"] or 0)
+            offline = int(row["offline"] or 0)
+            online = int(row["online"] or 0)
+            counts[str(row["network_key"] or "")] = {
+                "total": total,
+                "online": online,
+                "offline": offline,
+                "unknown": max(0, total - online - offline),
+            }
+        return counts
+
+    def vendor_counts(self, limit: int = 12) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT vendor, COUNT(*) AS count FROM devices GROUP BY vendor "
+                "ORDER BY count DESC, vendor LIMIT ?",
+                (max(1, int(limit)),),
+            ).fetchall()
+        return [
+            {"vendor": str(row["vendor"] or ""), "count": int(row["count"] or 0)}
+            for row in rows
+        ]
 
     # ------------------------------------------------------------- MAC query
     def lookup_mac(self, query: str, mode: str = "auto") -> dict[str, Any]:
@@ -993,10 +1341,23 @@ class Store:
     def stats(self) -> dict[str, Any]:
         settings = self.get_settings()
         stale_minutes = int(settings["stale_after_minutes"])
+        cutoff = (datetime.now() - timedelta(minutes=stale_minutes)).isoformat(timespec="seconds")
         with self._lock, self._connect() as connection:
-            rows = connection.execute("SELECT * FROM devices").fetchall()
+            device_row = connection.execute(
+                "SELECT COUNT(*) AS total, "
+                "COALESCE(SUM(favorite), 0) AS favorites, "
+                "COUNT(DISTINCT CASE WHEN network_current <> '' THEN network_current END) AS networks "
+                "FROM devices"
+            ).fetchone()
+            status_rows = connection.execute(
+                "SELECT "
+                "SUM(CASE WHEN status = 'offline' THEN 1 ELSE 0 END) AS offline, "
+                "SUM(CASE WHEN status = 'online' AND last_checked >= ? THEN 1 ELSE 0 END) AS online "
+                "FROM devices",
+                (cutoff,),
+            ).fetchone()
             last_task = connection.execute(
-                "SELECT finished_at FROM scan_tasks ORDER BY finished_at DESC LIMIT 1"
+                "SELECT MAX(finished_at) AS finished_at FROM scan_tasks"
             ).fetchone()
             scans_today = int(
                 connection.execute(
@@ -1004,25 +1365,18 @@ class Store:
                     (datetime.now().strftime("%Y-%m-%d"),),
                 ).fetchone()[0]
             )
-        counts = {"online": 0, "offline": 0, "unknown": 0}
-        favorites = 0
-        networks: set[str] = set()
-        for row in rows:
-            status = _effective_status(row, stale_minutes)
-            counts[status] = counts.get(status, 0) + 1
-            if row["favorite"]:
-                favorites += 1
-            if row["network_current"]:
-                networks.add(str(row["network_current"]))
+        total = int(device_row["total"] or 0)
+        online = int(status_rows["online"] or 0)
+        offline = int(status_rows["offline"] or 0)
         return {
-            "total": len(rows),
-            "online": counts["online"],
-            "offline": counts["offline"],
-            "unknown": counts["unknown"],
-            "favorites": favorites,
-            "networks": len(networks),
+            "total": total,
+            "online": online,
+            "offline": offline,
+            "unknown": max(0, total - online - offline),
+            "favorites": int(device_row["favorites"] or 0),
+            "networks": int(device_row["networks"] or 0),
             "scans_today": scans_today,
-            "last_scan_at": last_task["finished_at"] if last_task else "",
+            "last_scan_at": (last_task["finished_at"] if last_task else "") or "",
         }
 
     def recent_devices(self, limit: int = 6) -> list[dict[str, Any]]:
