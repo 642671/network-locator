@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import signal
 import socketserver
 import sys
+import tempfile
 import threading
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler
@@ -14,6 +16,7 @@ from typing import Any, Mapping
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from . import __version__
+from .store import Store
 from .core import (
     APP_ID,
     ScanManager,
@@ -29,7 +32,7 @@ from .core import (
 
 SOCKET_DIR = "/var/api"
 SOCKET_PATH = os.path.join(SOCKET_DIR, f"{APP_ID}.sock")
-MAX_BODY_BYTES = 8 * 1024
+MAX_BODY_BYTES = 64 * 1024
 
 
 def log(level: str, message: str) -> None:
@@ -72,23 +75,44 @@ def parse_network_selection(body: Mapping[str, Any]) -> list[str] | None:
         raise ApiError(400, str(exc)) from exc
 
 
+def _supports_argument(func: Any, name: str) -> bool:
+    try:
+        return name in inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return False
+
+
 def start_scan_result(
     manager: Any,
     suffixes: list[str],
     network_ids: list[str] | None = None,
+    custom_ranges: list[str] | None = None,
+    custom_only: bool = False,
 ) -> tuple[int, dict]:
-    started = manager.start(suffixes, network_ids)
+    if custom_ranges and _supports_argument(manager.start, "custom_only"):
+        started = manager.start(suffixes, network_ids, custom_ranges, custom_only)
+    elif custom_ranges and _supports_argument(manager.start, "custom_ranges"):
+        started = manager.start(suffixes, network_ids, custom_ranges)
+    else:
+        started = manager.start(suffixes, network_ids)
     actual = manager.status()
     if not started:
         matches_request = getattr(manager, "matches_request", None)
         same_request = actual.get("suffix") == suffixes[0]
         if callable(matches_request):
-            same_request = bool(matches_request(suffixes, network_ids))
+            if custom_ranges and _supports_argument(matches_request, "custom_only"):
+                same_request = bool(
+                    matches_request(suffixes, network_ids, custom_ranges, custom_only)
+                )
+            elif custom_ranges and _supports_argument(matches_request, "custom_ranges"):
+                same_request = bool(matches_request(suffixes, network_ids, custom_ranges))
+            else:
+                same_request = bool(matches_request(suffixes, network_ids))
         if not same_request:
             raise ApiError(
                 409,
-                "another scan with different MAC suffixes or network selection "
-                "is already running",
+                "another scan with different MAC suffixes, network selection or "
+                "custom range is already running",
             )
     return (
         202 if started else 200,
@@ -102,6 +126,9 @@ def start_scan_result(
             "suffix": actual.get("suffix", ""),
             "suffixes": actual.get("suffixes", []),
             "selected_network_ids": actual.get("selected_network_ids", []),
+            "custom_ranges": actual.get("custom_ranges", custom_ranges or []),
+            "custom_only": bool(actual.get("custom_only", custom_only)),
+            "paused": bool(actual.get("paused")),
             "message": "scan started" if started else "scan already running",
         },
     )
@@ -151,7 +178,7 @@ class NetworkLocatorHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Credentials", "true")
         self.send_header(
             "Access-Control-Allow-Methods",
-            "GET, HEAD, POST, OPTIONS",
+            "GET, HEAD, POST, PATCH, PUT, DELETE, OPTIONS",
         )
         self.send_header(
             "Access-Control-Allow-Headers",
@@ -169,6 +196,15 @@ class NetworkLocatorHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         self._dispatch("POST")
+
+    def do_PATCH(self) -> None:
+        self._dispatch("PATCH")
+
+    def do_PUT(self) -> None:
+        self._dispatch("PUT")
+
+    def do_DELETE(self) -> None:
+        self._dispatch("DELETE")
 
     def _read_json_body(self) -> dict:
         try:
@@ -205,6 +241,15 @@ class NetworkLocatorHandler(BaseHTTPRequestHandler):
                             "scan/start",
                             "scan/status",
                             "scan/stop",
+                            "scan/pause",
+                            "scan/resume",
+                            "v2/summary",
+                            "v2/devices",
+                            "v2/devices/scan",
+                            "v2/mac/lookup",
+                            "v2/analysis",
+                            "v2/scans",
+                            "v2/settings",
                         ],
                     },
                     head_only=head_only,
@@ -313,7 +358,16 @@ class NetworkLocatorHandler(BaseHTTPRequestHandler):
                     suffixes = normalize_mac_suffixes(raw_suffixes)
                 except ValueError as exc:
                     raise ApiError(400, str(exc)) from exc
-                network_ids = parse_network_selection(body)
+                custom_only_flag = bool(body.get("custom_only"))
+                if custom_only_flag and body.get("network_ids") == []:
+                    network_ids = None
+                else:
+                    network_ids = parse_network_selection(body)
+                custom_ranges = body.get("custom_ranges")
+                if custom_ranges is not None and not isinstance(
+                    custom_ranges, (list, tuple)
+                ):
+                    raise ApiError(400, "custom_ranges 必须是数组")
                 inventory_lock = getattr(self.server, "device_scan_lock", None)
                 if inventory_lock is None:
                     inventory_lock = threading.Lock()
@@ -324,10 +378,37 @@ class NetworkLocatorHandler(BaseHTTPRequestHandler):
                         self._manager(),
                         suffixes,
                         network_ids,
+                        list(custom_ranges or []),
+                        custom_only_flag,
                     )
+                except ValueError as exc:
+                    raise ApiError(400, str(exc)) from exc
                 finally:
                     inventory_lock.release()
                 self._send_json(status, payload)
+                return
+            if parts in (["scan", "pause"], ["scan", "resume"]):
+                if method != "POST":
+                    raise ApiError(405, "method not allowed")
+                self._read_json_body()
+                manager = self._manager()
+                if parts[1] == "pause":
+                    changed = manager.pause()
+                    message = "paused" if changed else "scan is not running"
+                else:
+                    changed = manager.resume()
+                    message = "resumed" if changed else "scan is not paused"
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "app": APP_ID,
+                        "changed": changed,
+                        "paused": bool(manager.status().get("paused")),
+                        "status": manager.status().get("status"),
+                        "message": message,
+                    },
+                )
                 return
             if parts == ["scan", "stop"]:
                 if method != "POST":
@@ -343,6 +424,9 @@ class NetworkLocatorHandler(BaseHTTPRequestHandler):
                         "message": "stopping" if stopping else "scan is not running",
                     },
                 )
+                return
+            from .v2_api import handle_v2
+            if handle_v2(self, method, parts):
                 return
             raise ApiError(404, "not found")
         except ApiError as exc:
@@ -399,9 +483,26 @@ def prepare_socket(path: str) -> None:
 
 def serve(socket_path: str = SOCKET_PATH) -> int:
     prepare_socket(socket_path)
-    manager = ScanManager()
+    try:
+        store = Store()
+    except Exception as exc:
+        log("ERROR", f"persistent store unavailable, using temporary storage: {exc}")
+        store = Store(os.path.join(tempfile.gettempdir(), f"{APP_ID}.db"))
+
+    def record_scan(snapshot: dict) -> None:
+        try:
+            store.record_scan_task(
+                snapshot,
+                kind="mac",
+                custom_ranges=snapshot.get("custom_ranges") or [],
+            )
+        except Exception as record_error:
+            log("ERROR", f"failed to record scan history: {record_error}")
+
+    manager = ScanManager(on_finish=record_scan)
     server = ThreadingUnixHTTPServer(socket_path, NetworkLocatorHandler)
     server.scan_manager = manager
+    server.store = store
     server.device_scan_lock = threading.Lock()
     os.chmod(socket_path, 0o660)
     stop_once = threading.Event()

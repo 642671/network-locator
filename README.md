@@ -16,7 +16,7 @@ accepted.
   `/usr/local/network-locator/` package paths all use the new identity, so
   TOS and App Center treat it as a **new application** rather than an update
   of `lan-mac-finder`. Feature behavior is unchanged from `1.0.017`.
-- **Phase 3 (current): 我的设备 section.** Version `1.2.0` adds a saved MAC
+- **Phase 3 (done): 我的设备 section.** Version `1.2.0` adds a saved MAC
   section that stores up to 8 MAC suffixes with notes, resolves each entry's
   current IP after every scan, copies an IP with one click, and keeps the
   existing generic MAC search unchanged. Version `1.2.1` separates
@@ -25,10 +25,18 @@ accepted.
   the device table with row selection and inline copy, adds network chips,
   fixes horizontal tooltips, shows an inline loading row while refreshing,
   and updates the app icon.
+- **Phase 4 (done): Network Locator V2.0 professional workspace.** Version
+  `1.4.0` replaces the single-page layout with a 7-page desktop workspace:
+  device overview, network discovery, device inventory, MAC lookup, network
+  analysis, scan history, and settings. It adds SQLite persistence, a stable
+  `device_id` identity model, IP history, device events, favorites and notes,
+  OUI vendor lookup, custom scan ranges, scan pause/resume, CSV export options,
+  and light/dark themes. Existing scan APIs, package paths, app id, systemd
+  unit, socket, and runtime user are unchanged.
 - **Published.** The repository is public at
   `https://github.com/642671/network-locator`; releases `v1.1.0-r2` and
   `v1.2.0`, `v1.3.0`, `v1.3.1` and `v1.3.2` carry the x86_64 and aarch64 Debs and SHA256 sidecars.
-  `v1.3.4` added an in-package [privacy policy](docs/PRIVACY.md), cleaner uninstall of application data and the service user, and packaging fixes for App Center installation. `v1.3.5` added a sortable network-range column, opened at 1040x760, widened the add-first hover target, and removed the stray resize dots. `v1.3.6` opens at 1180x720, shows the interface name (eth0) as the first table column, and tightens the UI density. `v1.3.7` moves the add-MAC button onto the title row and removes the leftover vertical gaps in the scan area.
+  `v1.3.4` added an in-package [privacy policy](docs/PRIVACY.md), cleaner uninstall of application data and the service user, and packaging fixes for App Center installation. `v1.3.5` added a sortable network-range column, opened at 1040x760, widened the add-first hover target, and removed the stray resize dots. `v1.3.6` opens at 1180x720, shows the interface name (eth0) as the first table column, and tightens the UI density. `v1.3.7` moves the add-MAC button onto the title row and removes the leftover vertical gaps in the scan area. `v1.3.8` aligns the titlebar with TOS system apps. `v1.4.0` is the V2 professional workspace release with device inventory, MAC vendor lookup, network analysis, scan history, and SQLite persistence.
 - **TDP:** App `network-locator` is registered (platform `x86_64`) and version
   `1.1.0` was submitted on 2026-11-21. It is currently in platform review
   (`status=0`). `1.2.x` will be submitted after that review ends.
@@ -49,7 +57,7 @@ accepted.
 | Socket | `/var/api/network-locator.sock` |
 | Runtime user | `network-locator` |
 | Package root | `/usr/local/network-locator/` |
-| Version | `1.3.7` |
+| Version | `1.4.0` |
 
 The old `lan-mac-finder` package is not upgraded by this build; installing it
 alongside is possible only because every path, user, socket, and unit name

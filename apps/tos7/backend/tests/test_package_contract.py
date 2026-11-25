@@ -326,7 +326,7 @@ class PackageContractTests(unittest.TestCase):
         )
         self.assertIn('class="section-title-row"', html)
         self.assertIn(".section-title-row", styles)
-        self.assertIn("var DEFAULT_SCAN_PANE_HEIGHT = 300", script)
+        self.assertIn("var DEFAULT_SCAN_PANE_HEIGHT = 340", script)
         self.assertIn('id="targetSummary"', html)
         self.assertIn("var MAX_SUFFIX_INPUTS = 8", script)
         self.assertIn("matched_suffixes", script)
@@ -346,8 +346,9 @@ class PackageContractTests(unittest.TestCase):
         self.assertTrue(config["maxmin"])
         self.assertRegex(styles, r"@media\s*\(\s*max-width:\s*980px\s*\)")
         self.assertNotRegex(styles, r"@media\s*\(\s*max-width:\s*1040px\s*\)")
-        # The 1180x720 default leaves an 870px workspace, so the full layout
-        # with the interface column and per-row actions fits without scrolling.
+        # The 1180x720 default leaves a 684px discovery workspace after the
+        # 210px global navigation, 280px page-local control column and 6px
+        # resizer, so the full table with per-row actions still fits.
         self.assertEqual(config["width"], 1180)
         self.assertIn("var WORKSPACE_NARROW_MAX_WIDTH = 680", script)
         self.assertIn(
@@ -355,14 +356,15 @@ class PackageContractTests(unittest.TestCase):
             script,
         )
         self.assertNotIn("width < 780", script)
-        default_sidebar = 304
+        default_nav = 210
+        default_sidebar = 280
         resizer = 6
         min_workspace = 560
         workspace = max(
             min_workspace,
-            int(config["width"]) - resizer - default_sidebar,
+            int(config["width"]) - default_nav - resizer - default_sidebar,
         )
-        self.assertEqual(workspace, 870)
+        self.assertEqual(workspace, 684)
         self.assertGreaterEqual(workspace, 680)
         self.assertRegex(
             styles,

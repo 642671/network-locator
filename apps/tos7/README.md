@@ -1,15 +1,36 @@
 # 网络定位 (Network Locator) for TOS 7
 
-`network-locator` is a TOS 7 iframe Deb application for finding devices in the
-NAS's current physical LAN by the last four characters of their MAC address.
+`network-locator` is a TOS 7 iframe Deb application for discovering, locating,
+and managing devices on the NAS's physical LAN. V2 adds a professional
+seven-page workspace while keeping the original MAC-suffix workflow and every
+legacy scan API.
 
-Current version: `1.3.8`. The in-package and public privacy policy is [docs/PRIVACY.md](../../docs/PRIVACY.md).
+Current version: `1.4.0`. The in-package and public privacy policy is [docs/PRIVACY.md](../../docs/PRIVACY.md).
 
 Version 1.1.0 introduces the display name 网络定位 (Network Locator) and a new
 application identity: `network-locator` replaces the former `lan-mac-finder`
 id, package, systemd unit, socket, runtime user, and package root. TOS treats
 it as a new application, not as an upgrade of an existing install. Feature
 behavior is unchanged from `1.0.017`.
+
+## V2 professional workspace
+
+- Left navigation (210px) with Device overview, Network discovery, Device
+  inventory, MAC lookup, Network analysis, Scan history, and Settings.
+- A 60px toolbar, 24px page padding, 46px table rows, 36px controls, and a
+  440px device drawer on the shared `#2563EB` / `#F5F7FA` design system.
+- SQLite persistence for device profiles, address history, events, scan tasks,
+  and settings under `/usr/local/network-locator/data/`.
+- Stable `device_id` identity: MAC first, then IP + interface within seven days.
+  IP changes update address records instead of creating duplicate devices.
+- Explicit online / offline / unknown rules, user-owned name, note, and favorite
+  fields that scans never overwrite.
+- OUI vendor lookup for full MAC, 6-character prefix, and 4-character suffix,
+  including batch queries and links back to device profiles.
+- Real network analysis: interfaces, gateway, DNS, per-network distribution,
+  gateway reachability, and ping latency/loss statistics.
+- Custom CIDR or IP ranges, scan pause/resume/stop, scan history, CSV delimiter,
+  header and BOM options, and light/dark themes.
 
 ## Features
 
@@ -92,9 +113,11 @@ behavior is unchanged from `1.0.017`.
 The screenshots use RFC 5737 example addresses and synthetic MAC values; they
 do not contain data from a real NAS or customer network.
 
-![Network Locator light theme](../../docs/screenshots/light.png)
+![Network Locator V2 dashboard, light theme](../../docs/screenshots/v2-dashboard-light.png)
 
-![Network Locator dark theme](../../docs/screenshots/dark.png)
+![Network Locator V2 device inventory, light theme](../../docs/screenshots/v2-inventory-light.png)
+
+![Network Locator V2 dashboard, dark theme](../../docs/screenshots/v2-dashboard-dark.png)
 
 ## Design references
 
@@ -211,7 +234,7 @@ Generated packages and SHA256 files are written to `dist/`.
 For a test NAS:
 
 ```bash
-sudo dpkg -i network-locator_1.2.0_x86_64.deb
+sudo dpkg -i network-locator_1.4.0_x86_64.deb
 systemctl status networklocator-system.service
 curl --unix-socket /var/api/network-locator.sock http://localhost/health
 ```

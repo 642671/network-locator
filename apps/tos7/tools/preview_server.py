@@ -7,9 +7,10 @@ import argparse
 import json
 import threading
 import time
+from datetime import datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
@@ -139,6 +140,7 @@ class PreviewState:
     def __init__(self, no_match: bool = False) -> None:
         self.lock = threading.Lock()
         self.cancel = threading.Event()
+        self.pause_event = threading.Event()
         self.no_match = no_match
         self.job_sequence = 0
         self.data = self._idle()
@@ -149,6 +151,7 @@ class PreviewState:
             "status": "idle",
             "running": False,
             "stopping": False,
+            "paused": False,
             "job_id": "",
             "suffix": "",
             "suffixes": [],
@@ -182,6 +185,7 @@ class PreviewState:
                 return False
             self.job_sequence += 1
             self.cancel = threading.Event()
+            self.pause_event.clear()
             self.data = self._idle()
             self.data.update(
                 {
@@ -223,7 +227,27 @@ class PreviewState:
     def stop(self) -> None:
         with self.lock:
             self.data["stopping"] = True
+            self.data["paused"] = False
+        self.pause_event.clear()
         self.cancel.set()
+
+    def pause(self) -> bool:
+        with self.lock:
+            if not self.data["running"] or self.data["stopping"]:
+                return False
+            self.pause_event.set()
+            self.data["paused"] = True
+            self.data["status"] = "paused"
+            return True
+
+    def resume(self) -> bool:
+        with self.lock:
+            if not self.data["running"] or not self.data["paused"]:
+                return False
+            self.pause_event.clear()
+            self.data["paused"] = False
+            self.data["status"] = "scanning"
+            return True
 
     def _run(
         self,
@@ -257,6 +281,11 @@ class PreviewState:
         for network in networks:
             host_count = max(0, int(network.get("host_count") or 0))
             for step in range(1, 5):
+                if cancel.is_set():
+                    self._finish("stopped")
+                    return
+                while self.pause_event.is_set() and not cancel.is_set():
+                    time.sleep(0.05)
                 if cancel.is_set():
                     self._finish("stopped")
                     return
@@ -313,6 +342,693 @@ class PreviewState:
 STATE = PreviewState()
 
 
+def _v2_iso(minutes_ago: int) -> str:
+    return (datetime.now() - timedelta(minutes=minutes_ago)).isoformat(timespec="seconds")
+
+
+_V2_VENDORS = {
+    "3C0754": "Apple",
+    "A4C361": "Apple",
+    "001B21": "Intel",
+    "9009D0": "Synology",
+    "24F5A2": "Espressif",
+    "B827EB": "Raspberry Pi",
+    "0019E0": "TP-Link",
+    "005056": "VMware",
+}
+
+
+def _v2_compact(value: object) -> str:
+    return "".join(c for c in str(value or "").upper() if c in "0123456789ABCDEF")
+
+
+def _v2_vendor(mac: object) -> str:
+    return _V2_VENDORS.get(_v2_compact(mac)[:6], "")
+
+
+def _v2_device(
+    device_id: str,
+    ip: str,
+    mac: str,
+    name: str,
+    interface: str,
+    network_id: str,
+    status: str,
+    minutes_ago: int,
+    **extra: object,
+) -> dict:
+    first = _v2_iso(minutes_ago + 720)
+    last = _v2_iso(minutes_ago)
+    device = {
+        "device_id": device_id,
+        "name": name,
+        "display_name": "",
+        "note": "",
+        "favorite": False,
+        "vendor": _v2_vendor(mac),
+        "vendor_known": bool(_v2_vendor(mac)),
+        "device_type": "",
+        "mac": mac,
+        "ip": ip,
+        "interface": interface,
+        "network_id": network_id,
+        "status": status,
+        "status_state": "LOCAL" if status == "online" else "STALE" if status == "unknown" else "REACHABLE",
+        "status_reason": "预览示例数据",
+        "random_mac": False,
+        "first_seen": first,
+        "last_seen": last,
+        "last_checked": last,
+        "seen_count": 12,
+        "search_text": " ".join([name, ip, mac, interface, network_id]),
+    }
+    device.update(extra)
+    addresses = [
+        {
+            "mac": mac,
+            "ip": ip,
+            "interface": interface,
+            "network_id": network_id,
+            "first_seen": first,
+            "last_seen": last,
+            "is_current": 1,
+        }
+    ]
+    device["addresses"] = addresses
+    device["ip_history"] = [
+        {
+            "ip": ip,
+            "macs": [mac],
+            "interfaces": [interface],
+            "first_seen": first,
+            "last_seen": last,
+            "is_current": True,
+        }
+    ]
+    device["events"] = [
+        {
+            "event_id": device_id + "-e1",
+            "device_id": device_id,
+            "kind": "discovered",
+            "detail": "首次发现",
+            "created_at": first,
+        }
+    ]
+    return device
+
+
+class V2PreviewState:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.settings = {
+            "scan_timeout_ms": 1200,
+            "scan_concurrency": 64,
+            "default_interface": "",
+            "auto_scan_enabled": False,
+            "auto_scan_interval_minutes": 30,
+            "stale_after_minutes": 30,
+            "csv_delimiter": ",",
+            "csv_include_header": True,
+            "csv_bom": True,
+            "theme": "light",
+            "locale": "zh",
+            "history_retention_days": 90,
+        }
+        self.devices = [
+            _v2_device("dev-sample-1", "192.0.2.1", "4C-A6-4D-4A-8A-CD", "核心网关", "enp1s0", "enp1s0|192.0.2.0/24", "online", 2),
+            _v2_device("dev-sample-2", "192.0.2.25", "02-42-AC-11-00-19", "本机 NAS", "enp1s0", "enp1s0|192.0.2.0/24", "online", 1),
+            _v2_device("dev-sample-3", "192.0.2.44", "3C-07-54-9A-1B-2C", "客厅 Apple TV", "enp1s0", "enp1s0|192.0.2.0/24", "online", 4, favorite=True, note="客厅电视柜"),
+            _v2_device("dev-sample-4", "192.0.2.88", "00-1B-21-3C-4D-5E", "设计工作站", "enp1s0", "enp1s0|192.0.2.0/24", "online", 6, favorite=True, note="设计部主力机", seen_count=34),
+            _v2_device("dev-sample-5", "192.0.2.120", "90-09-D0-11-22-33", "Synology 备份机", "enp1s0", "enp1s0|192.0.2.0/24", "online", 8, note="每日 02:00 备份"),
+            _v2_device("dev-sample-6", "198.51.100.10", "A4-C3-61-7E-8F-90", "访客 iPad", "enp2s0", "enp2s0|198.51.100.0/24", "offline", 60 * 30),
+            _v2_device("dev-sample-7", "198.51.100.24", "24-F5-A2-AB-CD-EF", "智能插座", "enp2s0", "enp2s0|198.51.100.0/24", "unknown", 95),
+            _v2_device("dev-sample-8", "192.0.2.150", "02-11-22-33-44-55", "临时设备", "enp1s0", "enp1s0|192.0.2.0/24", "online", 12, random_mac=True),
+            _v2_device("dev-sample-9", "192.0.2.180", "B8-27-EB-12-34-56", "Raspberry Pi 网关", "enp1s0", "enp1s0|192.0.2.0/24", "online", 18),
+        ]
+        old_ip = "192.0.2.80"
+        target = self.devices[3]
+        target["ip_history"].append(
+            {
+                "ip": old_ip,
+                "macs": [target["mac"]],
+                "interfaces": [target["interface"]],
+                "first_seen": _v2_iso(60 * 24 * 6),
+                "last_seen": _v2_iso(60 * 24 * 2),
+                "is_current": False,
+            }
+        )
+        target["events"].append(
+            {
+                "event_id": "dev-sample-4-e2",
+                "device_id": "dev-sample-4",
+                "kind": "ip_changed",
+                "detail": old_ip + " → " + target["ip"],
+                "created_at": _v2_iso(6),
+            }
+        )
+        target["events"].append(
+            {
+                "event_id": "dev-sample-4-e3",
+                "device_id": "dev-sample-4",
+                "kind": "note",
+                "detail": "备注已更新",
+                "created_at": _v2_iso(120),
+            }
+        )
+        self.tasks = [
+            {
+                "task_id": "sample-task-3",
+                "kind": "inventory",
+                "status": "completed",
+                "started_at": _v2_iso(8),
+                "finished_at": _v2_iso(7),
+                "network_ids": ["enp1s0|192.0.2.0/24", "enp2s0|198.51.100.0/24"],
+                "networks": [dict(item) for item in NETWORKS],
+                "suffixes": [],
+                "custom_ranges": [],
+                "total_hosts": 508,
+                "probed_hosts": 508,
+                "discovered": 9,
+                "new_devices": 2,
+                "offline_devices": 1,
+                "ip_changes": 1,
+                "result_count": 9,
+                "warnings": ["预览模式：任务与结果为界面示例数据"],
+                "error": "",
+                "results": [
+                    {
+                        "interface": item["interface"],
+                        "scan_range": item["network_id"].split("|", 1)[-1],
+                        "ip": item["ip"],
+                        "mac": item["mac"],
+                        "state": "LOCAL" if item["status"] == "online" else "STALE",
+                    }
+                    for item in self.devices
+                ],
+            },
+            {
+                "task_id": "sample-task-2",
+                "kind": "mac",
+                "status": "stopped",
+                "started_at": _v2_iso(150),
+                "finished_at": _v2_iso(148),
+                "network_ids": ["enp1s0|192.0.2.0/24"],
+                "networks": [dict(NETWORKS[0])],
+                "suffixes": ["1B2C", "4D5E"],
+                "custom_ranges": [],
+                "total_hosts": 254,
+                "probed_hosts": 190,
+                "discovered": 1,
+                "new_devices": 0,
+                "offline_devices": 0,
+                "ip_changes": 0,
+                "result_count": 1,
+                "warnings": ["预览模式：任务与结果为界面示例数据"],
+                "error": "",
+                "results": [
+                    {
+                        "interface": "enp1s0",
+                        "scan_range": "192.0.2.0/24",
+                        "ip": "192.0.2.44",
+                        "mac": "3C-07-54-9A-1B-2C",
+                        "state": "REACHABLE",
+                        "matched_suffixes": ["1B2C"],
+                    }
+                ],
+            },
+            {
+                "task_id": "sample-task-1",
+                "kind": "custom",
+                "status": "error",
+                "started_at": _v2_iso(60 * 24),
+                "finished_at": _v2_iso(60 * 24 - 1),
+                "network_ids": [],
+                "networks": [],
+                "suffixes": [],
+                "custom_ranges": ["203.0.113.0/28"],
+                "total_hosts": 14,
+                "probed_hosts": 4,
+                "discovered": 0,
+                "new_devices": 0,
+                "offline_devices": 0,
+                "ip_changes": 0,
+                "result_count": 0,
+                "warnings": [],
+                "error": "示例：目标范围不可达",
+                "results": [],
+            },
+        ]
+
+    def _stats(self) -> dict:
+        counts = {"online": 0, "offline": 0, "unknown": 0}
+        favorites = 0
+        networks = set()
+        for device in self.devices:
+            counts[device["status"]] = counts.get(device["status"], 0) + 1
+            if device["favorite"]:
+                favorites += 1
+            if device["network_id"]:
+                networks.add(device["network_id"])
+        return {
+            "total": len(self.devices),
+            "online": counts["online"],
+            "offline": counts["offline"],
+            "unknown": counts["unknown"],
+            "favorites": favorites,
+            "networks": len(networks),
+            "scans_today": len(self.tasks),
+            "last_scan_at": self.tasks[0]["finished_at"] if self.tasks else "",
+        }
+
+    def _public(self, device: dict) -> dict:
+        item = dict(device)
+        item.pop("addresses", None)
+        item.pop("events", None)
+        item.pop("ip_history", None)
+        return item
+
+    def summary(self) -> dict:
+        with self.lock:
+            by_network: dict[str, int] = {}
+            for device in self.devices:
+                key = device.get("network_id") or ""
+                by_network[key] = by_network.get(key, 0) + 1
+            networks = []
+            for item in NETWORKS:
+                payload = dict(item)
+                payload["device_count"] = by_network.get(item["network_id"], 0)
+                networks.append(payload)
+            recent = sorted(self.devices, key=lambda item: item["last_seen"], reverse=True)[:6]
+            return {
+                "ok": True,
+                "app": APP_ID,
+                "version": PREVIEW_VERSION,
+                "sample": True,
+                "stats": self._stats(),
+                "recent": [self._public(item) for item in recent],
+                "networks": networks,
+                "warnings": ["预览模式：设备、统计与扫描历史均为界面示例数据。"],
+                "settings": dict(self.settings),
+                "storage": {
+                    "path": "/var/lib/network-locator/preview.sqlite",
+                    "directory": "/var/lib/network-locator",
+                    "size_bytes": 245760,
+                    "writable": True,
+                    "sample": True,
+                },
+                "vendor_count": 205,
+                "schema_version": 1,
+            }
+
+    def list_devices(self, query: str, status: str, favorite: object, sort: str, direction: str, limit: int, offset: int) -> dict:
+        with self.lock:
+            items = list(self.devices)
+        text = str(query or "").strip().lower()
+        if text:
+            items = [
+                item for item in items
+                if text in " ".join(
+                    str(item.get(key) or "") for key in (
+                        "name", "display_name", "note", "vendor", "mac", "ip", "interface", "network_id"
+                    )
+                ).lower()
+            ]
+        if status:
+            items = [item for item in items if item.get("status") == status]
+        if favorite:
+            items = [item for item in items if item.get("favorite")]
+
+        def sort_key(item: dict):
+            key = sort or "last_seen"
+            if key == "ip":
+                return tuple(int(part) if part.isdigit() else 999 for part in str(item.get("ip") or "").split("."))
+            if key == "status":
+                return {"online": 0, "unknown": 1, "offline": 2}.get(item.get("status"), 3)
+            if key == "network":
+                return str(item.get("network_id") or "")
+            if key in {"name", "mac", "vendor"}:
+                return str(item.get(key) or "").lower()
+            return str(item.get("last_seen") or "")
+
+        items.sort(key=sort_key, reverse=str(direction or "desc").lower() != "asc")
+        total = len(items)
+        window = items[max(0, offset): max(0, offset) + max(1, min(5000, limit))]
+        return {
+            "ok": True,
+            "app": APP_ID,
+            "version": PREVIEW_VERSION,
+            "sample": True,
+            "devices": [self._public(item) for item in window],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "stats": self._stats(),
+            "settings": dict(self.settings),
+        }
+
+    def get_device(self, device_id: str):
+        with self.lock:
+            for item in self.devices:
+                if item["device_id"] == device_id:
+                    return dict(item)
+        return None
+
+    def update_device(self, device_id: str, patch: dict):
+        with self.lock:
+            for item in self.devices:
+                if item["device_id"] != device_id:
+                    continue
+                if "display_name" in patch:
+                    item["display_name"] = str(patch.get("display_name") or "")[:80]
+                    item["name"] = item["display_name"] or item["name"]
+                if "note" in patch:
+                    item["note"] = str(patch.get("note") or "")[:500]
+                if "favorite" in patch:
+                    item["favorite"] = bool(patch.get("favorite"))
+                item["last_checked"] = _v2_iso(0)
+                return dict(item)
+        return None
+
+    def scan_inventory(self, body: dict) -> dict:
+        with self.lock:
+            devices = [self._public(item) for item in self.devices]
+            stats = self._stats()
+        task = {
+            "task_id": "sample-live-" + str(int(time.time())),
+            "kind": "inventory",
+            "status": "completed",
+            "started_at": _v2_iso(0),
+            "finished_at": _v2_iso(0),
+            "network_ids": [item["network_id"] for item in NETWORKS],
+            "networks": [dict(item) for item in NETWORKS],
+            "suffixes": [],
+            "custom_ranges": list(body.get("custom_ranges") or []),
+            "total_hosts": 508,
+            "probed_hosts": 508,
+            "discovered": len(devices),
+            "new_devices": 0,
+            "offline_devices": stats["offline"],
+            "ip_changes": 0,
+            "result_count": len(devices),
+            "warnings": ["预览模式：未执行真实扫描，返回界面示例数据。"],
+            "error": "",
+            "results": [],
+        }
+        return {
+            "ok": True,
+            "app": APP_ID,
+            "version": PREVIEW_VERSION,
+            "sample": True,
+            "devices": devices,
+            "total": len(devices),
+            "task": task,
+            "warnings": task["warnings"],
+            "stats": stats,
+        }
+
+    def lookup_mac(self, query: str, mode: str = "auto") -> dict:
+        compact = _v2_compact(query)
+        if not compact:
+            raise ValueError("请输入完整的 MAC、前缀或后缀")
+        if mode not in {"auto", "full", "prefix", "suffix", "any"}:
+            mode = "auto"
+        if mode == "auto":
+            if len(compact) == 12:
+                mode = "full"
+            elif len(compact) == 6:
+                mode = "prefix"
+            elif len(compact) <= 4:
+                mode = "suffix"
+            else:
+                mode = "any"
+        matches = []
+        with self.lock:
+            for device in self.devices:
+                matched = []
+                for address in device.get("addresses") or []:
+                    mac = _v2_compact(address.get("mac"))
+                    if not mac:
+                        continue
+                    if mode == "full" and mac != compact:
+                        continue
+                    if mode == "prefix" and not mac.startswith(compact):
+                        continue
+                    if mode == "suffix" and not mac.endswith(compact):
+                        continue
+                    if mode == "any" and compact not in mac:
+                        continue
+                    matched.append(address.get("mac"))
+                if matched:
+                    item = self._public(device)
+                    item["matched_macs"] = matched
+                    item["live"] = False
+                    matches.append(item)
+        vendor_hint = None
+        if mode in {"full", "prefix"} and len(compact) >= 6:
+            vendor_hint = {"prefix": compact[:6], "vendor": _v2_vendor(compact[:6] + "000000")}
+        return {
+            "ok": True,
+            "app": APP_ID,
+            "version": PREVIEW_VERSION,
+            "sample": True,
+            "query": str(query),
+            "mode": mode,
+            "hex": compact,
+            "vendor_hint": vendor_hint,
+            "vendor_prefixes": (
+                [{"prefix": compact[:6], "vendor": _v2_vendor(compact[:6] + "000000")}]
+                if len(compact) >= 6 and _v2_vendor(compact[:6] + "000000")
+                else []
+            ),
+            "matches": matches,
+            "count": len(matches),
+        }
+
+    def analysis(self) -> dict:
+        with self.lock:
+            devices = [self._public(item) for item in self.devices]
+            stats = self._stats()
+        counts: dict[str, dict[str, int]] = {}
+        vendors: dict[str, int] = {}
+        for device in devices:
+            key = str(device.get("network_id") or "未知")
+            bucket = counts.setdefault(key, {"total": 0, "online": 0, "offline": 0, "unknown": 0})
+            bucket["total"] += 1
+            bucket[device.get("status") or "unknown"] = bucket.get(device.get("status") or "unknown", 0) + 1
+            vendor = device.get("vendor") or "未知厂商"
+            vendors[vendor] = vendors.get(vendor, 0) + 1
+        interfaces = []
+        for network in NETWORKS:
+            payload = dict(network)
+            bucket = counts.get(network["network_id"], {})
+            payload["device_count"] = bucket.get("total", 0)
+            payload["online_count"] = bucket.get("online", 0)
+            interfaces.append(payload)
+        return {
+            "ok": True,
+            "app": APP_ID,
+            "version": PREVIEW_VERSION,
+            "sample": True,
+            "interfaces": interfaces,
+            "warnings": ["预览模式：接口、DNS 与设备分布均为界面示例数据。"],
+            "dns_servers": ["192.0.2.53", "198.51.100.53"],
+            "networks": [
+                {"network_id": key, **value} for key, value in sorted(counts.items())
+            ],
+            "vendors": [
+                {"vendor": key, "count": value}
+                for key, value in sorted(vendors.items(), key=lambda item: -item[1])[:12]
+            ],
+            "stats": stats,
+            "settings": dict(self.settings),
+        }
+
+    def ping(self, body: dict) -> dict:
+        host = str(body.get("host") or "").strip()
+        if not host and body.get("gateway"):
+            host = "192.0.2.1"
+        if not host:
+            raise ValueError("请输入有效的 IPv4 地址或主机名")
+        return {
+            "ok": True,
+            "app": APP_ID,
+            "version": PREVIEW_VERSION,
+            "sample": True,
+            "host": host,
+            "transmitted": int(body.get("count") or 4),
+            "received": int(body.get("count") or 4),
+            "loss_percent": 0.0,
+            "reachable": True,
+            "min_ms": 0.42,
+            "avg_ms": 1.24,
+            "max_ms": 2.86,
+            "mdev_ms": 0.31,
+            "measured_at": _v2_iso(0),
+        }
+
+    def list_tasks(self, limit: int, offset: int) -> dict:
+        with self.lock:
+            items = [dict(item) for item in self.tasks]
+        for item in items:
+            item.pop("results", None)
+        return {
+            "ok": True,
+            "app": APP_ID,
+            "version": PREVIEW_VERSION,
+            "sample": True,
+            "tasks": items[offset: offset + limit],
+            "total": len(items),
+            "limit": limit,
+            "offset": offset,
+        }
+
+    def get_task(self, task_id: str):
+        with self.lock:
+            for item in self.tasks:
+                if item["task_id"] == task_id:
+                    return dict(item)
+        return None
+
+    def purge(self, days: object) -> dict:
+        return {"ok": True, "app": APP_ID, "version": PREVIEW_VERSION, "sample": True, "removed": 0}
+
+    def settings_payload(self) -> dict:
+        return {
+            "ok": True,
+            "app": APP_ID,
+            "version": PREVIEW_VERSION,
+            "sample": True,
+            "settings": dict(self.settings),
+            "storage": {
+                "path": "/var/lib/network-locator/preview.sqlite",
+                "directory": "/var/lib/network-locator",
+                "size_bytes": 245760,
+                "writable": True,
+                "sample": True,
+            },
+            "vendor_count": 205,
+            "schema_version": 1,
+            "capabilities": ["store/sqlite", "devices", "scan-history", "mac-lookup", "network-analysis", "custom-ranges", "pause-resume"],
+        }
+
+    def update_settings(self, patch: dict) -> dict:
+        limits = {
+            "scan_timeout_ms": (100, 30000),
+            "scan_concurrency": (1, 128),
+            "stale_after_minutes": (1, 10080),
+            "auto_scan_interval_minutes": (1, 1440),
+            "history_retention_days": (1, 3650),
+        }
+        with self.lock:
+            for key, value in patch.items():
+                if key not in self.settings:
+                    continue
+                if key in limits:
+                    low, high = limits[key]
+                    number = int(value)
+                    if number < low or number > high:
+                        raise ValueError(key + " 超出范围")
+                    self.settings[key] = number
+                elif key in {"auto_scan_enabled", "csv_include_header", "csv_bom"}:
+                    self.settings[key] = bool(value)
+                elif key == "csv_delimiter":
+                    text = str(value or "")
+                    if text not in {",", ";", "\t"}:
+                        raise ValueError("csv_delimiter 必须是逗号、分号或制表符")
+                    self.settings[key] = text
+                elif key in {"theme", "locale", "default_interface"}:
+                    self.settings[key] = str(value or "")
+            return dict(self.settings)
+
+
+V2 = V2PreviewState()
+
+
+def v2_dispatch(method: str, path: str, body: dict):
+    parts = api_parts(path)
+    if not parts or parts[0] != "v2":
+        return 404, None
+    rest = parts[1:]
+    values = parse_qs(urlsplit(path).query, keep_blank_values=True)
+
+    def one(key: str, default: str = "") -> str:
+        items = values.get(key)
+        return items[-1] if items else default
+
+    try:
+        if method in {"GET", "HEAD"}:
+            if rest == ["summary"]:
+                return 200, V2.summary()
+            if rest == ["devices"]:
+                return 200, V2.list_devices(
+                    one("query"),
+                    one("status"),
+                    one("favorite") in {"1", "true", "yes"},
+                    one("sort", "last_seen"),
+                    one("direction", "desc"),
+                    int(one("limit", "500") or 500),
+                    int(one("offset", "0") or 0),
+                )
+            if len(rest) == 2 and rest[0] == "devices":
+                device = V2.get_device(rest[1])
+                if device is None:
+                    return 404, {"ok": False, "error": "设备不存在"}
+                return 200, {"ok": True, "app": APP_ID, "version": PREVIEW_VERSION, "sample": True, "device": device}
+            if rest in (["mac", "lookup"], ["mac"]):
+                return 200, V2.lookup_mac(one("q") or one("query"), one("mode", "auto"))
+            if rest == ["analysis"]:
+                return 200, V2.analysis()
+            if rest == ["scans"]:
+                return 200, V2.list_tasks(int(one("limit", "50") or 50), int(one("offset", "0") or 0))
+            if len(rest) == 2 and rest[0] == "scans":
+                task = V2.get_task(rest[1])
+                if task is None:
+                    return 404, {"ok": False, "error": "扫描任务不存在"}
+                return 200, {"ok": True, "app": APP_ID, "version": PREVIEW_VERSION, "sample": True, "task": task}
+            if rest == ["settings"]:
+                return 200, V2.settings_payload()
+            return 404, None
+        if method == "PATCH":
+            if len(rest) == 2 and rest[0] == "devices":
+                device = V2.update_device(rest[1], body)
+                if device is None:
+                    return 404, {"ok": False, "error": "设备不存在"}
+                return 200, {"ok": True, "app": APP_ID, "version": PREVIEW_VERSION, "sample": True, "device": device}
+            if rest == ["settings"]:
+                return 200, {"ok": True, "app": APP_ID, "version": PREVIEW_VERSION, "sample": True, "settings": V2.update_settings(body)}
+            return 404, None
+        if method == "POST":
+            if rest == ["devices", "scan"]:
+                return 200, V2.scan_inventory(body)
+            if rest == ["mac", "lookup"]:
+                queries = body.get("queries")
+                if not isinstance(queries, list) or not queries:
+                    return 400, {"ok": False, "error": "请输入至少一个 MAC 查询"}
+                results = []
+                for query in queries[:100]:
+                    text = str(query or "").strip()
+                    if not text:
+                        continue
+                    try:
+                        result = V2.lookup_mac(text, "auto")
+                        results.append(result)
+                    except ValueError as exc:
+                        results.append({"query": text, "error": str(exc), "matches": [], "count": 0})
+                return 200, {"ok": True, "app": APP_ID, "version": PREVIEW_VERSION, "sample": True, "results": results}
+            if rest == ["analysis", "ping"]:
+                return 200, V2.ping(body)
+            if rest == ["scans", "purge"]:
+                return 200, V2.purge(body.get("older_than_days"))
+            if rest == ["settings"]:
+                return 200, {"ok": True, "app": APP_ID, "version": PREVIEW_VERSION, "sample": True, "settings": V2.update_settings(body)}
+            return 404, None
+        return 405, {"ok": False, "error": "method not allowed"}
+    except ValueError as exc:
+        return 400, {"ok": False, "app": APP_ID, "error": str(exc)}
+
+
+
+
 def api_parts(path: str) -> list[str]:
     parts = [part for part in urlsplit(path).path.split("/") if part]
     while APP_ID in parts:
@@ -329,6 +1045,10 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 
     def log_message(self, format: str, *args) -> None:
         return
+
+    def end_headers(self) -> None:
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        super().end_headers()
 
     def _json(self, status: int, payload: dict) -> None:
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -395,6 +1115,11 @@ class PreviewHandler(SimpleHTTPRequestHandler):
                 },
             )
             return
+        if parts and parts[0] == "v2":
+            status, payload = v2_dispatch("GET", self.path, {})
+            if payload is not None:
+                self._json(status, payload)
+                return
         if self.path.startswith(("/v2/", "/network-locator/")):
             self._json(404, {"ok": False, "error": "not found"})
             return
@@ -413,6 +1138,11 @@ class PreviewHandler(SimpleHTTPRequestHandler):
     def do_POST(self) -> None:
         parts = api_parts(self.path)
         body = self._read_body()
+        if parts and parts[0] == "v2":
+            status, payload = v2_dispatch("POST", self.path, body)
+            if payload is not None:
+                self._json(status, payload)
+                return
         if parts == ["devices", "scan"]:
             try:
                 network_ids = normalize_selected_ids(body.get("network_ids"))
@@ -464,18 +1194,27 @@ class PreviewHandler(SimpleHTTPRequestHandler):
                     return
                 if text not in suffixes:
                     suffixes.append(text)
-            try:
-                network_ids = normalize_selected_ids(body.get("network_ids"))
-            except ValueError as exc:
-                self._json(400, {"ok": False, "error": str(exc)})
-                return
-            networks, missing = select_preview_networks(network_ids)
-            if network_ids is not None and not networks:
-                self._json(
-                    409,
-                    {"ok": False, "error": "所选网段当前不可用，请刷新网段后重试"},
-                )
-                return
+            custom_ranges = body.get("custom_ranges") or []
+            custom_only = bool(body.get("custom_only"))
+            custom_note = ""
+            if custom_only and isinstance(custom_ranges, list) and custom_ranges:
+                network_ids = None
+                networks = [NETWORKS[0]]
+                missing = []
+                custom_note = "预览模式：自定义范围由示例网段代替，未执行真实扫描。"
+            else:
+                try:
+                    network_ids = normalize_selected_ids(body.get("network_ids"))
+                except ValueError as exc:
+                    self._json(400, {"ok": False, "error": str(exc)})
+                    return
+                networks, missing = select_preview_networks(network_ids)
+                if network_ids is not None and not networks:
+                    self._json(
+                        409,
+                        {"ok": False, "error": "所选网段当前不可用，请刷新网段后重试"},
+                    )
+                    return
             started = STATE.start(suffixes, networks, network_ids)
             actual = STATE.status()
             if not started and not STATE.matches_request(suffixes, network_ids):
@@ -499,6 +1238,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
                     "suffix": actual.get("suffix", ""),
                     "suffixes": actual.get("suffixes", []),
                     "selected_network_ids": actual.get("selected_network_ids", []),
+                    "warnings": [custom_note] if custom_note else [],
                 },
             )
             return
@@ -506,6 +1246,31 @@ class PreviewHandler(SimpleHTTPRequestHandler):
             STATE.stop()
             self._json(200, {"ok": True, "app": APP_ID, "stopping": True})
             return
+        if parts == ["scan", "pause"]:
+            started = STATE.pause()
+            self._json(
+                200 if started else 409,
+                {"ok": started, "app": APP_ID, "paused": started, **STATE.status()},
+            )
+            return
+        if parts == ["scan", "resume"]:
+            started = STATE.resume()
+            self._json(
+                200 if started else 409,
+                {"ok": started, "app": APP_ID, "paused": not started, **STATE.status()},
+            )
+            return
+        self._json(404, {"ok": False, "error": "not found"})
+
+
+    def do_PATCH(self) -> None:
+        parts = api_parts(self.path)
+        body = self._read_body()
+        if parts and parts[0] == "v2":
+            status, payload = v2_dispatch("PATCH", self.path, body)
+            if payload is not None:
+                self._json(status, payload)
+                return
         self._json(404, {"ok": False, "error": "not found"})
 
 

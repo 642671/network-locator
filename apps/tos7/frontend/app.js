@@ -1,5 +1,32 @@
 "use strict";
 
+function t(value) {
+  if (window.NetworkLocatorI18n && typeof window.NetworkLocatorI18n.t === "function") {
+    return window.NetworkLocatorI18n.t(String(value));
+  }
+  return String(value);
+}
+
+
+function countUnit(count, zhKey, enOne, enMany) {
+  var n = Number(count);
+  if (!Number.isFinite(n)) {
+    n = 0;
+  }
+  if (window.NetworkLocatorI18n && window.NetworkLocatorI18n.locale() === "en") {
+    return n + " " + (n === 1 ? enOne : enMany);
+  }
+  return n + t(zhKey);
+}
+
+function tLocale() {
+  if (window.NetworkLocatorI18n && typeof window.NetworkLocatorI18n.localeTag === "function") {
+    return window.NetworkLocatorI18n.localeTag();
+  }
+  return "zh-CN";
+}
+
+
 var APP_ID = "network-locator";
 var MAC_SUFFIX_PATTERN = /^(?:[0-9A-Fa-f]{2}[-:][0-9A-Fa-f]{2}|[0-9A-Fa-f]{4})$/;
 var SEARCH_INTENT_KEY = "networkLocator.searchIntent.v1";
@@ -10,8 +37,8 @@ var DEVICE_CACHE_LIMIT = 1000;
 var NETWORK_FRESHNESS_MS = 5000;
 var SIDEBAR_WIDTH_KEY = "networkLocator.layout.sidebarWidth.v1";
 var SCAN_PANE_HEIGHT_KEY = "networkLocator.layout.scanPaneHeight.v1";
-var DEFAULT_SIDEBAR_WIDTH = 304;
-var DEFAULT_SCAN_PANE_HEIGHT = 300;
+var DEFAULT_SIDEBAR_WIDTH = 280;
+var DEFAULT_SCAN_PANE_HEIGHT = 340;
 var MIN_SIDEBAR_WIDTH = 280;
 var MAX_SIDEBAR_WIDTH = 560;
 var MIN_WORKSPACE_WIDTH = 560;
@@ -21,6 +48,8 @@ var CONTINUOUS_RESTART_DELAY_MS = 1100;
 var MAX_NO_MATCH_ROUNDS = 10;
 var MAX_SUFFIX_INPUTS = 8;
 var SAVED_MACS_KEY = "networkLocator.savedMacs.v1";
+var CUSTOM_RANGES_KEY = "networkLocator.customRanges.v1";
+var MAX_CUSTOM_RANGES = 32;
 var SAVED_MACS_LIMIT = 8;
 var SAVED_NOTE_LIMIT = 100;
 var SERVICE_RETRY_DELAY_MS = 2200;
@@ -34,7 +63,7 @@ var TABLE_SORT_KEYS = {
   state: true
 };
 var DEFAULT_INPUT_ERROR =
-  "请输入 AA-BB、AA:BB 或 AABB 格式的 MAC 后四位。";
+  t("请输入 AA-BB、AA:BB 或 AABB 格式的 MAC 后四位。");
 var API_CANDIDATES = (function buildCandidates() {
   var directory = location.pathname.slice(0, location.pathname.lastIndexOf("/") + 1);
   var values = [
@@ -57,6 +86,7 @@ var pollTimer = null;
 var continuousRestartTimer = null;
 var toastTimer = null;
 var activeTooltipTarget = null;
+var lastFinishedJobId = "";
 
 var state = {
   networks: [],
@@ -100,7 +130,9 @@ var state = {
   probedHosts: 0,
   jobId: "",
   savedMacs: [],
-  savedPanelCollapsed: false
+  savedPanelCollapsed: false,
+  customRanges: [],
+  paused: false
 };
 
 function byId(id) {
@@ -110,7 +142,7 @@ function byId(id) {
 function setText(id, value) {
   var node = byId(id);
   if (node) {
-    node.textContent = String(value);
+    node.textContent = String(t(value));
   }
 }
 
@@ -121,6 +153,94 @@ function setHidden(node, hidden) {
   if (node) {
     node.hidden = !!hidden;
   }
+}
+
+function readCustomRanges() {
+  try {
+    var raw = window.localStorage.getItem(CUSTOM_RANGES_KEY);
+    var value = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value.filter(function (item) {
+      return typeof item === "string" && item.trim();
+    }).slice(0, MAX_CUSTOM_RANGES);
+  } catch (error) {
+    return [];
+  }
+}
+
+function persistCustomRanges() {
+  try {
+    window.localStorage.setItem(CUSTOM_RANGES_KEY, JSON.stringify(state.customRanges));
+  } catch (error) {
+    return;
+  }
+}
+
+function renderCustomRanges() {
+  var container = byId("customRangeChips");
+  if (!container) {
+    return;
+  }
+  while (container.firstChild) {
+    container.removeChild(container.firstChild);
+  }
+  if (!state.customRanges.length) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  state.customRanges.forEach(function (value) {
+    var chip = document.createElement("span");
+    chip.className = "custom-range-chip";
+    var label = document.createElement("span");
+    label.textContent = value;
+    var remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "custom-range-remove";
+    remove.setAttribute("data-custom-range", value);
+    remove.setAttribute("aria-label", t("移除 ") + value);
+    remove.textContent = "\u00d7";
+    chip.appendChild(label);
+    chip.appendChild(remove);
+    container.appendChild(chip);
+  });
+}
+
+function addCustomRange(value) {
+  var text = String(value || "").trim();
+  if (!text) {
+    return false;
+  }
+  var isCidr = /^[0-9]{1,3}(?:\.[0-9]{1,3}){3}\/[0-9]{1,2}$/.test(text);
+  var isSpan = /^[0-9]{1,3}(?:\.[0-9]{1,3}){3}-[0-9]{1,3}(?:\.[0-9]{1,3}){3}$/.test(text);
+  if (!isCidr && !isSpan) {
+    toast(t("请输入 CIDR（如 192.168.1.0/24）或起止地址范围。"), true);
+    return false;
+  }
+  if (state.customRanges.indexOf(text) >= 0) {
+    toast(t("该范围已添加。"), true);
+    return false;
+  }
+  if (state.customRanges.length >= MAX_CUSTOM_RANGES) {
+    toast(t("最多添加 ") + MAX_CUSTOM_RANGES + t(" 个自定义范围。"), true);
+    return false;
+  }
+  state.customRanges.push(text);
+  persistCustomRanges();
+  renderCustomRanges();
+  updateControls();
+  return true;
+}
+
+function removeCustomRange(value) {
+  state.customRanges = state.customRanges.filter(function (item) {
+    return item !== value;
+  });
+  persistCustomRanges();
+  renderCustomRanges();
+  updateControls();
 }
 
 function normalizeSuffix(value) {
@@ -243,7 +363,7 @@ function persistSavedMacs(items) {
   } catch (error) {
     if (!savedStorageWarned) {
       savedStorageWarned = true;
-      toast("浏览器未允许本地存储，本次保存不会保留。", true);
+      toast(t("浏览器未允许本地存储，本次保存不会保留。"), true);
     }
     return false;
   }
@@ -289,7 +409,7 @@ function matchSavedMac(entry, devices) {
 function savedMacStatus(matches) {
   var list = Array.isArray(matches) ? matches : [];
   if (!list.length) {
-    return { label: "离线", className: "is-offline", online: false };
+    return { label: t("离线"), className: "is-offline", online: false };
   }
   var states = list.map(function (device) {
     return String(device.state || "").toUpperCase();
@@ -298,25 +418,25 @@ function savedMacStatus(matches) {
     return value === "REACHABLE" || value === "LOCAL";
   });
   if (hasOnline) {
-    return { label: "在线", className: "is-online", online: true };
+    return { label: t("在线"), className: "is-online", online: true };
   }
   var hasRecent = states.some(function (value) {
     return value === "DELAY" || value === "STALE" || value === "PROBE";
   });
   if (hasRecent) {
-    return { label: "近期", className: "is-recent", online: false };
+    return { label: t("近期"), className: "is-recent", online: false };
   }
-  return { label: "未知", className: "is-offline", online: false };
+  return { label: t("未知"), className: "is-offline", online: false };
 }
 
 function formatSavedLastSeen(entry, matches) {
   if (entry && entry.lastSeenAt) {
-    return formatTime(entry.lastSeenAt) + (matches.length ? "" : "（上次）");
+    return formatTime(entry.lastSeenAt) + (matches.length ? "" : t("（上次）"));
   }
   if (Array.isArray(matches) && matches.length) {
-    return "刚刚";
+    return t("刚刚");
   }
-  return "从未发现";
+  return t("从未发现");
 }
 
 function mergeSavedMacLastSeen(devices) {
@@ -533,23 +653,26 @@ function restoreDeviceCache() {
     var stamp = formatTime(state.deviceCacheRestoredAt);
     setText(
       "resultSummary",
-      "已恢复上次探测到的 " + devices.length + " 台设备" +
+      t("已恢复上次探测到的 ") + countUnit(devices.length, " 台设备", "device", "devices") +
         (stamp ? "（" + stamp + "）" : "") + "。"
     );
-    setText("scanFooterMeta", "已缓存设备 " + devices.length + " 台");
+    setText("scanFooterMeta", t("已缓存设备 ") + countUnit(devices.length, " 台", "device", "devices"));
   }
   return true;
 }
 
 function networkSelectionSummary() {
   if (!state.networks.length) {
-    return "未发现可扫描网段";
+    return t("未发现可扫描网段");
   }
   var selectedCount = selectedNetworkIds().length;
   if (!selectedCount) {
-    return "请至少选择一个活动网段";
+    if (state.customRanges.length) {
+      return t("将扫描 ") + state.customRanges.length + t(" 个自定义范围");
+    }
+    return t("请至少选择一个活动网段");
   }
-  return "已选择 " + selectedCount + " / " + state.networks.length + " 个活动网段";
+  return t("已选择 ") + selectedCount + " / " + countUnit(state.networks.length, " 个活动网段", "active network", "active networks");
 }
 
 function updateNetworkSummary() {
@@ -639,7 +762,7 @@ function activeTargetLabel() {
   if (labels.length <= 3) {
     return labels.join("、");
   }
-  return labels.slice(0, 3).join("、") + " 等 " + labels.length + " 个后缀";
+  return labels.slice(0, 3).join("、") + t(" 等 ") + countUnit(labels.length, " 个后缀", "suffix", "suffixes");
 }
 
 function pendingTargetLabel() {
@@ -652,18 +775,18 @@ function pendingTargetLabel() {
   if (labels.length <= 3) {
     return labels.join("、");
   }
-  return labels.slice(0, 3).join("、") + " 等 " + labels.length + " 个后缀";
+  return labels.slice(0, 3).join("、") + t(" 等 ") + countUnit(labels.length, " 个后缀", "suffix", "suffixes");
 }
 
 function targetResultLine(target) {
   var label = targetLabel(target);
   if (target.status === "found") {
-    return label + " 找到 " + target.foundCount + " 台设备";
+    return label + t(" 找到 ") + countUnit(target.foundCount, " 台设备", "device", "devices");
   }
   if (target.status === "not-found") {
-    return label + " 已完成 " + MAX_NO_MATCH_ROUNDS + " 轮，未找到";
+    return label + t(" 已完成 ") + MAX_NO_MATCH_ROUNDS + t(" 轮，未找到");
   }
-  return label + " 未完成查找";
+  return label + t(" 未完成查找");
 }
 
 function buildTargets(entries) {
@@ -897,8 +1020,8 @@ function restoreSearchIntent() {
   renderResults(storedResults, true);
   setScanState(
     "running",
-    "恢复持续搜索",
-    "服务恢复后将自动继续查找 " + activeTargetLabel() + "。"
+    t("恢复持续搜索"),
+    t("服务恢复后将自动继续查找 ") + activeTargetLabel() + "。"
   );
   return true;
 }
@@ -925,30 +1048,30 @@ function targetRoundNumber(target) {
 function continuousRoundLabel() {
   var completed = Math.max(0, state.searchRound);
   var current = state.running ? completed + 1 : Math.max(1, completed);
-  return "第 " + Math.max(1, Math.min(MAX_NO_MATCH_ROUNDS, current)) +
-    " / " + MAX_NO_MATCH_ROUNDS + " 轮";
+  return t("第 ") + Math.max(1, Math.min(MAX_NO_MATCH_ROUNDS, current)) +
+    " / " + MAX_NO_MATCH_ROUNDS + t(" 轮");
 }
 
 function continuousExhaustedMessage() {
   if (state.targets.length > 1) {
-    return "已完成 " + MAX_NO_MATCH_ROUNDS + " 轮轮询查找：" +
+    return t("已完成 ") + MAX_NO_MATCH_ROUNDS + t(" 轮轮询查找：") +
       state.targets.map(targetResultLine).join("；") + "。";
   }
-  return "已完成 " + MAX_NO_MATCH_ROUNDS + " 轮轮询查找，最终没有找到 MAC 后缀 " +
-    activeTargetLabel() + " 的设备。";
+  return t("已完成 ") + MAX_NO_MATCH_ROUNDS + t(" 轮轮询查找，最终没有找到 MAC 后缀 ") +
+    activeTargetLabel() + t(" 的设备。");
 }
 
 function searchFinishedMessage() {
   var only = state.targets.length === 1 ? state.targets[0] : null;
   if (only && only.status === "found") {
-    return "查找完成，MAC 后缀 " + targetLabel(only) + " 找到 " +
-      only.foundCount + " 台设备。";
+    return t("查找完成，MAC 后缀 ") + targetLabel(only) + t(" 找到 ") +
+      countUnit(only.foundCount, " 台设备。", "device.", "devices.");
   }
   if (only) {
     return continuousExhaustedMessage();
   }
   if (state.targets.length > 1) {
-    return "查找完成：" + state.targets.map(targetResultLine).join("；") + "。";
+    return t("查找完成：") + state.targets.map(targetResultLine).join("；") + "。";
   }
   return continuousExhaustedMessage();
 }
@@ -1057,30 +1180,30 @@ function resetContinuousRoundTracking() {
 
 function targetStatusText(target) {
   if (target.status === "found") {
-    return "找到 " + target.foundCount + " 台";
+    return t("找到 ") + countUnit(target.foundCount, " 台", "device", "devices");
   }
   if (target.status === "not-found") {
-    return "已查 " + MAX_NO_MATCH_ROUNDS + " 轮 · 未找到";
+    return t("已查 ") + MAX_NO_MATCH_ROUNDS + t(" 轮 · 未找到");
   }
   if (state.running) {
-    return "查找中 · 第 " + targetRoundNumber(target) + " / " +
-      MAX_NO_MATCH_ROUNDS + " 轮";
+    return t("查找中 · 第 ") + targetRoundNumber(target) + " / " +
+      MAX_NO_MATCH_ROUNDS + t(" 轮");
   }
   if (state.continuous) {
-    return "已查 " + Math.min(MAX_NO_MATCH_ROUNDS, target.rounds) + " / " +
-      MAX_NO_MATCH_ROUNDS + " 轮 · 等待下一轮";
+    return t("已查 ") + Math.min(MAX_NO_MATCH_ROUNDS, target.rounds) + " / " +
+      MAX_NO_MATCH_ROUNDS + t(" 轮 · 等待下一轮");
   }
   if (state.roundInterrupted) {
-    return "已停止 · 第 " + Math.min(
+    return t("已停止 · 第 ") + Math.min(
       MAX_NO_MATCH_ROUNDS,
       target.rounds + 1
-    ) + " / " + MAX_NO_MATCH_ROUNDS + " 轮未完成";
+    ) + " / " + MAX_NO_MATCH_ROUNDS + t(" 轮未完成");
   }
   if (target.rounds === 0) {
-    return "已停止 · 未开始查找";
+    return t("已停止 · 未开始查找");
   }
-  return "已停止 · 已查 " + Math.min(MAX_NO_MATCH_ROUNDS, target.rounds) +
-    " / " + MAX_NO_MATCH_ROUNDS + " 轮";
+  return t("已停止 · 已查 ") + Math.min(MAX_NO_MATCH_ROUNDS, target.rounds) +
+    " / " + MAX_NO_MATCH_ROUNDS + t(" 轮");
 }
 
 function syncTargetCounts(results) {
@@ -1166,11 +1289,11 @@ function isLoginEnvelope(data) {
 
 function apiFailure(kind, url, detail, status) {
   var labels = {
-    network: "请求没有离开浏览器",
-    session: "TOS 会话未生效",
-    gateway: "平台代理没有转到本应用",
-    offline: "应用服务返回了错误",
-    rejected: "请求未被接受"
+    network: t("请求没有离开浏览器"),
+    session: t("TOS 会话未生效"),
+    gateway: t("平台代理没有转到本应用"),
+    offline: t("应用服务返回了错误"),
+    rejected: t("请求未被接受")
   };
   var error = new Error(labels[kind] + "：" + detail);
   error.kind = kind;
@@ -1198,7 +1321,7 @@ async function send(root, endpoint, payload, options) {
     : null;
   try {
     response = await fetch(url, {
-      method: withBody ? "POST" : "GET",
+      method: (options && options.method) || (withBody ? "POST" : "GET"),
       credentials: "include",
       headers: platformHeaders(withBody),
       body: withBody ? JSON.stringify(payload) : undefined,
@@ -1213,7 +1336,7 @@ async function send(root, endpoint, payload, options) {
       "network",
       url,
       error.name === "AbortError"
-        ? "请求超过 " + Math.round(timeoutMs / 1000) + " 秒未响应"
+        ? t("请求超过 ") + Math.round(timeoutMs / 1000) + t(" 秒未响应")
         : (error.name || "Error") + ": " + error.message
     );
   }
@@ -1229,7 +1352,7 @@ async function send(root, endpoint, payload, options) {
       throw apiFailure(
         "network",
         url,
-        "请求超过 " + Math.round(timeoutMs / 1000) + " 秒未响应"
+        t("请求超过 ") + Math.round(timeoutMs / 1000) + t(" 秒未响应")
       );
     }
   }
@@ -1247,7 +1370,7 @@ async function send(root, endpoint, payload, options) {
     throw apiFailure(
       "session",
       url,
-      "平台返回未登录响应（HTTP " + response.status + "）",
+      t("平台返回未登录响应（HTTP ") + response.status + "）",
       response.status
     );
   }
@@ -1255,7 +1378,7 @@ async function send(root, endpoint, payload, options) {
     throw apiFailure(
       "gateway",
       url,
-      "HTTP " + response.status + " 且响应不是 JSON",
+      "HTTP " + response.status + t(" 且响应不是 JSON"),
       response.status
     );
   }
@@ -1271,7 +1394,7 @@ async function send(root, endpoint, payload, options) {
     throw apiFailure(
       "rejected",
       url,
-      data.error || "后端返回 ok:false",
+      data.error || t("后端返回 ok:false"),
       response.status
     );
   }
@@ -1288,7 +1411,7 @@ async function refreshApiRoot() {
         lastError = apiFailure(
           "gateway",
           root + "/health",
-          "回包的 app 字段是 " + data.app
+          t("回包的 app 字段是 ") + data.app
         );
         continue;
       }
@@ -1305,7 +1428,7 @@ async function refreshApiRoot() {
   throw lastError || apiFailure(
     "gateway",
     API_CANDIDATES[0] + "/health",
-    "所有候选代理路径都不可用"
+    t("所有候选代理路径都不可用")
   );
 }
 
@@ -1344,7 +1467,7 @@ function toast(message, isError) {
   region.textContent = "";
   var item = document.createElement("div");
   item.className = "toast" + (isError ? " is-error" : "");
-  item.textContent = message;
+  item.textContent = String(t(message));
   region.appendChild(item);
   if (toastTimer) {
     window.clearTimeout(toastTimer);
@@ -1358,21 +1481,21 @@ function toast(message, isError) {
 
 function describeError(error) {
   if (!error) {
-    return "未知错误";
+    return t("未知错误");
   }
   if (error.kind === "session") {
-    return "TOS 会话未生效，请从桌面重新打开应用。";
+    return t("TOS 会话未生效，请从桌面重新打开应用。");
   }
   if (error.kind === "network") {
-    return "浏览器未能连接平台代理，请检查当前 TOS 页面和网络连接。";
+    return t("浏览器未能连接平台代理，请检查当前 TOS 页面和网络连接。");
   }
   if (error.kind === "gateway") {
-    return "平台代理没有返回本应用接口，请确认应用服务状态。";
+    return t("平台代理没有返回本应用接口，请确认应用服务状态。");
   }
   if (error.kind === "offline") {
-    return "应用后端返回错误，请稍后重试。";
+    return t("应用后端返回错误，请稍后重试。");
   }
-  return error.detail || error.message || "请求失败";
+  return error.detail || error.message || t("请求失败");
 }
 
 function iconSvg(children) {
@@ -1403,7 +1526,7 @@ function renderNetworkList() {
   if (!state.networks.length) {
     var empty = document.createElement("div");
     empty.className = "network-empty";
-    empty.textContent = "没有可扫描的物理网段";
+    empty.textContent = t("没有可扫描的物理网段");
     list.appendChild(empty);
     renderScopeChips();
     return;
@@ -1422,7 +1545,7 @@ function renderNetworkList() {
     checkbox.disabled = networkSelectionLocked();
     checkbox.setAttribute(
       "aria-label",
-      "扫描网段 " + network.scan_range + "（" + network.interface + "）"
+      t("扫描网段 ") + network.scan_range + "（" + network.interface + "）"
     );
     checkbox.addEventListener("change", function () {
       item.classList.toggle("is-selected", checkbox.checked);
@@ -1448,7 +1571,7 @@ function renderNetworkList() {
     var detail = document.createElement("div");
     detail.className = "network-item-detail";
     detail.textContent = network.local_ip + "/" + network.prefix_length +
-      " · 网关 " + (network.gateway || "--");
+      t(" · 网关 ") + (network.gateway || "--");
     copy.appendChild(name);
     copy.appendChild(detail);
 
@@ -1476,7 +1599,7 @@ function renderWarnings() {
   }
   state.warnings.forEach(function (warning) {
     var line = document.createElement("div");
-    line.textContent = warning;
+    line.textContent = String(t(warning));
     panel.appendChild(line);
   });
   panel.hidden = false;
@@ -1522,10 +1645,10 @@ function classifySuffixInput(value) {
 
 function inputErrorMessage(status) {
   if (status === "too-long") {
-    return "无分隔符时最多输入 4 位；带 - 或 : 分隔符时最多输入 5 位。";
+    return t("无分隔符时最多输入 4 位；带 - 或 : 分隔符时最多输入 5 位。");
   }
   if (status === "invalid-character") {
-    return "MAC 后四位只能包含 0-9、A-F，以及一个 - 或 : 分隔符。";
+    return t("MAC 后四位只能包含 0-9、A-F，以及一个 - 或 : 分隔符。");
   }
   return DEFAULT_INPUT_ERROR;
 }
@@ -1644,7 +1767,7 @@ function collectSuffixEntries(showError) {
       if (!problem) {
         problem = {
           row: row,
-          message: "同一个 MAC 后缀不能重复输入。"
+          message: t("同一个 MAC 后缀不能重复输入。")
         };
       }
       return;
@@ -1685,7 +1808,7 @@ function updateSuffixRowMetadata() {
     if (input) {
       input.setAttribute(
         "aria-label",
-        index === 0 ? "MAC 后四位" : "MAC 后四位 " + (index + 1)
+        index === 0 ? t("MAC 后四位") : t("MAC 后四位 ") + (index + 1)
       );
     }
   });
@@ -1812,8 +1935,26 @@ function updateControls() {
     rawTableRows().length > 0 &&
     visibleRows.length === 0;
 
-  scanButton.disabled = busy || !hasSelection;
+  scanButton.disabled = busy || (!hasSelection && !state.customRanges.length);
   stopButton.disabled = !searchActive || state.stopping;
+  var pauseButton = byId("pauseButton");
+  if (pauseButton) {
+    pauseButton.disabled = !searchActive || state.stopping;
+    pauseButton.classList.toggle("is-paused", !!state.paused);
+    setText("pauseButtonText", state.paused ? t("继续") : t("暂停"));
+    pauseButton.setAttribute(
+      "aria-label",
+      state.paused ? t("继续扫描") : t("暂停扫描")
+    );
+  }
+  var rangeInput = byId("customRangeInput");
+  var rangeButton = byId("addCustomRangeButton");
+  if (rangeInput) {
+    rangeInput.disabled = busy;
+  }
+  if (rangeButton) {
+    rangeButton.disabled = busy || state.customRanges.length >= MAX_CUSTOM_RANGES;
+  }
   refreshButton.disabled =
     state.running || state.inventoryScanning || state.networkVerifying;
   emptyRefreshButton.disabled =
@@ -1860,8 +2001,8 @@ function updateControls() {
   setText(
     "suffixLimitHint",
     rows.length >= MAX_SUFFIX_INPUTS
-      ? "已添加 " + MAX_SUFFIX_INPUTS + " 个，达到上限"
-      : "最多同时搜索 " + MAX_SUFFIX_INPUTS + " 个"
+      ? t("已添加 ") + MAX_SUFFIX_INPUTS + t(" 个，达到上限")
+      : t("最多同时搜索 ") + MAX_SUFFIX_INPUTS + t(" 个")
   );
   copyButton.disabled = !state.selectedMac;
   copyIpButton.disabled = !state.selectedIp;
@@ -1870,26 +2011,26 @@ function updateControls() {
   setText(
     "scanButtonText",
     state.inventoryScanning
-      ? "扫描设备中"
+      ? t("扫描设备中")
       : state.stopping
-        ? "停止中"
+        ? t("停止中")
         : state.running
-          ? "持续扫描中"
+          ? t("持续扫描中")
           : state.continuous
-            ? "持续搜索中"
-            : "开始扫描"
+            ? t("持续搜索中")
+            : t("开始扫描")
   );
   setText(
     "emptyRefreshButton",
     state.inventoryScanning
-      ? "刷新中…"
+      ? t("刷新中…")
       : state.continuous
-        ? "停止持续搜索"
+        ? t("停止持续搜索")
         : filteredEmpty
-          ? "清除筛选"
+          ? t("清除筛选")
           : state.tableMode === "results"
-            ? "重新识别网段"
-            : "刷新设备总表"
+            ? t("重新识别网段")
+            : t("刷新设备总表")
   );
   updateSavedDevicesLoading();
 }
@@ -1922,15 +2063,15 @@ function setProgress(percent, indeterminate, label) {
   var safe = Math.max(0, Math.min(100, Number(percent) || 0));
   track.setAttribute("aria-valuenow", String(safe));
   bar.style.width = indeterminate ? "" : safe + "%";
-  setText("progressValue", indeterminate ? "准备中" : safe + "%");
-  setText("progressLabel", label || "正在扫描");
+  setText("progressValue", indeterminate ? t("准备中") : safe + "%");
+  setText("progressLabel", label || t("正在扫描"));
 }
 
 function resetSelection() {
   state.selectedMac = "";
   state.selectedIp = "";
   state.selectedKey = "";
-  setText("selectionText", "未选择设备");
+  setText("selectionText", t("未选择设备"));
   byId("copyButton").disabled = true;
   byId("copyIpButton").disabled = true;
   var body = byId("resultsBody");
@@ -1960,7 +2101,7 @@ function selectRow(row) {
   state.selectedMac = row.getAttribute("data-mac") || "";
   state.selectedIp = row.getAttribute("data-ip") || "";
   state.selectedKey = row.getAttribute("data-key") || "";
-  setText("selectionText", state.selectedMac ? "已选择 " + state.selectedMac : "未选择设备");
+  setText("selectionText", state.selectedMac ? t("已选择 ") + state.selectedMac : t("未选择设备"));
   var summary = document.querySelector(".selected-summary");
   if (summary) {
     summary.classList.toggle("has-selection", !!state.selectedMac);
@@ -1998,7 +2139,7 @@ function tableQueryActive() {
 function tableRowSearchText(item) {
   var row = item || {};
   var stateValue = String(row.state || "");
-  var localLabel = stateValue.toLowerCase() === "local" ? "本机 local" : "";
+  var localLabel = stateValue.toLowerCase() === "local" ? t("本机 local") : "";
   return [
     row.interface,
     row.scan_range,
@@ -2162,10 +2303,10 @@ function updateTableFilterSummary(sourceCount, visibleCount) {
   } else if (tableQueryActive()) {
     setText(
       "tableFilterSummary",
-      "筛选后 " + visibleCount + " / 共 " + sourceCount + " 台"
+      t("筛选后 ") + visibleCount + t(" / 共 ") + countUnit(sourceCount, " 台", "device", "devices")
     );
   } else {
-    setText("tableFilterSummary", "共 " + sourceCount + " 台设备");
+    setText("tableFilterSummary", t("共 ") + countUnit(sourceCount, " 台设备", "device", "devices"));
   }
 }
 
@@ -2196,7 +2337,7 @@ function updateTableSortState() {
     );
     var button = header.querySelector(".sort-button");
     if (button && !button.getAttribute("aria-label")) {
-      button.setAttribute("aria-label", "按" + button.textContent.trim() + "排序");
+      button.setAttribute("aria-label", t("按") + t(button.textContent.trim()) + t("排序"));
     }
   }
 }
@@ -2238,21 +2379,21 @@ function clearTableFilter(focusInput) {
 function stateLabel(value) {
   var normalized = String(value || "").toUpperCase();
   if (normalized === "REACHABLE") {
-    return "可达";
+    return t("可达");
   }
   if (normalized === "LOCAL") {
-    return "本机";
+    return t("本机");
   }
   if (normalized === "DELAY") {
-    return "延迟";
+    return t("延迟");
   }
   if (normalized === "STALE") {
-    return "陈旧";
+    return t("陈旧");
   }
   if (normalized === "PROBE") {
-    return "探测中";
+    return t("探测中");
   }
-  return value || "未知";
+  return value || t("未知");
 }
 
 function copyTableValue(text) {
@@ -2261,9 +2402,9 @@ function copyTableValue(text) {
     return;
   }
   writeClipboard(value).then(function () {
-    toast("已复制 " + value, false);
+    toast(t("已复制 ") + value, false);
   }).catch(function () {
-    toast("复制失败，请重试。", true);
+    toast(t("复制失败，请重试。"), true);
   });
 }
 
@@ -2328,7 +2469,7 @@ function paintTableRows(preserveSelection) {
     checkbox.type = "checkbox";
     checkbox.className = "row-select";
     checkbox.checked = !!selectedKey && selectedKey === rowKey;
-    checkbox.setAttribute("aria-label", "选择 " + result.ip);
+    checkbox.setAttribute("aria-label", t("选择 ") + result.ip);
     checkbox.addEventListener("change", function () {
       if (checkbox.checked) {
         selectRow(row);
@@ -2342,12 +2483,12 @@ function paintTableRows(preserveSelection) {
     networkCell.className = "mono-value network-cell";
     networkCell.textContent = result.interface || "--";
     networkCell.title = result.interface
-      ? result.interface + (result.scan_range ? " · " + result.scan_range : " · 未知网段")
-      : String(result.scan_range || "未知网段");
+      ? result.interface + (result.scan_range ? " · " + result.scan_range : t(" · 未知网段"))
+      : String(result.scan_range || t("未知网段"));
     networkCell.setAttribute(
       "aria-label",
-      "网段 " + String(result.interface || "未知") +
-        (result.scan_range ? "，网段 " + result.scan_range : "")
+      t("网段 ") + String(result.interface || t("未知")) +
+        (result.scan_range ? t("，网段 ") + result.scan_range : "")
     );
 
     var ipCell = document.createElement("td");
@@ -2360,7 +2501,7 @@ function paintTableRows(preserveSelection) {
       ipLink.target = "_blank";
       ipLink.rel = "noopener noreferrer";
       ipLink.textContent = result.ip;
-      ipLink.title = "在新标签页打开 " + ipUrl;
+      ipLink.title = t("在新标签页打开 ") + ipUrl;
       ipCell.appendChild(ipLink);
     } else {
       ipCell.textContent = result.ip;
@@ -2371,8 +2512,8 @@ function paintTableRows(preserveSelection) {
     var macButton = document.createElement("button");
     macButton.type = "button";
     macButton.className = "mac-copy";
-    macButton.title = "复制 MAC";
-    macButton.setAttribute("aria-label", "复制 MAC " + result.mac);
+    macButton.title = t("复制 MAC");
+    macButton.setAttribute("aria-label", t("复制 MAC ") + result.mac);
     var macText = document.createElement("span");
     macText.className = "mac-copy-value";
     macText.textContent = result.mac;
@@ -2395,7 +2536,7 @@ function paintTableRows(preserveSelection) {
     macButton.appendChild(macIcon);
     var copiedHint = document.createElement("span");
     copiedHint.className = "mac-copied-hint";
-    copiedHint.textContent = "已复制";
+    copiedHint.textContent = t("已复制");
     copiedHint.hidden = true;
     macButton.appendChild(copiedHint);
     macButton.addEventListener("click", function (event) {
@@ -2408,7 +2549,7 @@ function paintTableRows(preserveSelection) {
           macButton.classList.remove("is-copied");
         }, 1600);
       }).catch(function () {
-        toast("复制失败，请重试。", true);
+        toast(t("复制失败，请重试。"), true);
       });
     });
     macCell.appendChild(macButton);
@@ -2444,16 +2585,16 @@ function paintTableRows(preserveSelection) {
     var copyIp = document.createElement("button");
     copyIp.type = "button";
     copyIp.className = "row-action";
-    copyIp.textContent = "复制 IP";
-    copyIp.setAttribute("aria-label", "复制 IP " + result.ip);
+    copyIp.textContent = t("复制 IP");
+    copyIp.setAttribute("aria-label", t("复制 IP ") + result.ip);
     copyIp.addEventListener("click", function () {
       copyTableValue(result.ip);
     });
     var copyMac = document.createElement("button");
     copyMac.type = "button";
     copyMac.className = "row-action";
-    copyMac.textContent = "复制 MAC";
-    copyMac.setAttribute("aria-label", "复制 MAC " + result.mac);
+    copyMac.textContent = t("复制 MAC");
+    copyMac.setAttribute("aria-label", t("复制 MAC ") + result.mac);
     copyMac.addEventListener("click", function () {
       copyTableValue(result.mac);
     });
@@ -2493,7 +2634,7 @@ function paintTableRows(preserveSelection) {
 
   setText(
     "tableHeading",
-    state.tableMode === "results" ? "匹配结果" : "设备总表"
+    state.tableMode === "results" ? t("匹配结果") : t("设备总表")
   );
   setText("resultCount", rows.length);
   setHidden("tableToolbar", sourceRows.length === 0);
@@ -2561,67 +2702,67 @@ function renderDevices(devices, force) {
 function renderEmptyForStatus(status) {
   var sourceRows = rawTableRows();
   if (tableQueryActive() && sourceRows.length) {
-    setText("emptyTitle", "没有符合筛选条件的设备");
+    setText("emptyTitle", t("没有符合筛选条件的设备"));
     setText(
       "emptyMessage",
-      "请调整关键词，或清除筛选查看全部 " + sourceRows.length + " 台设备。"
+      t("请调整关键词，或清除筛选查看全部 ") + countUnit(sourceRows.length, " 台设备。", "device.", "devices.")
     );
     return;
   }
   if (state.tableMode === "devices") {
-    setText("emptyTitle", "暂无设备记录");
-    setText("emptyMessage", "当前网段中没有探测到设备，刷新后再试。");
+    setText("emptyTitle", t("暂无设备记录"));
+    setText("emptyMessage", t("当前网段中没有探测到设备，刷新后再试。"));
     return;
   }
   if (state.searchExhausted) {
-    setText("emptyTitle", "轮询查找未找到");
+    setText("emptyTitle", t("轮询查找未找到"));
     setText("emptyMessage", continuousExhaustedMessage());
     return;
   }
   if (state.continuous) {
-    setText("emptyTitle", "当前没有搜索到");
+    setText("emptyTitle", t("当前没有搜索到"));
     if (status === "running") {
       setText(
         "emptyMessage",
-        "正在持续查找 " + pendingTargetLabel() +
-          "，找到设备后会自动显示。"
+        t("正在持续查找 ") + pendingTargetLabel() +
+          t("，找到设备后会自动显示。")
       );
     } else if (status === "error" || status === "waiting") {
       setText(
         "emptyMessage",
-        "当前服务暂不可用；恢复后会自动继续搜索，找到设备后会显示在这里。"
+        t("当前服务暂不可用；恢复后会自动继续搜索，找到设备后会显示在这里。")
       );
     } else {
       setText(
         "emptyMessage",
-        "本轮未发现 " + pendingTargetLabel() +
-          "，将自动开始下一轮搜索。"
+        t("本轮未发现 ") + pendingTargetLabel() +
+          t("，将自动开始下一轮搜索。")
       );
     }
     return;
   }
   if (status === "running") {
-    setText("emptyTitle", "正在扫描");
-    setText("emptyMessage", "网段探测和邻居表读取正在后台进行。");
+    setText("emptyTitle", t("正在扫描"));
+    setText("emptyMessage", t("网段探测和邻居表读取正在后台进行。"));
     return;
   }
   if (status === "stopped") {
-    setText("emptyTitle", "扫描已停止");
-    setText("emptyMessage", "已完成的探测结果保留在当前页面。");
+    setText("emptyTitle", t("扫描已停止"));
+    setText("emptyMessage", t("已完成的探测结果保留在当前页面。"));
     return;
   }
   if (status === "error") {
-    setText("emptyTitle", "扫描未完成");
-    setText("emptyMessage", "请检查网段、服务状态或稍后重试。");
+    setText("emptyTitle", t("扫描未完成"));
+    setText("emptyMessage", t("请检查网段、服务状态或稍后重试。"));
     return;
   }
   if (status === "completed") {
-    setText("emptyTitle", "未找到匹配设备");
-    setText("emptyMessage", "当前网段中没有符合该 MAC 后缀的记录。");
+    setText("emptyTitle", t("未找到匹配设备"));
+    setText("emptyMessage", t("当前网段中没有符合该 MAC 后缀的记录。"));
     return;
   }
-  setText("emptyTitle", "等待扫描");
-  setText("emptyMessage", "匹配到的设备会显示在这里。");
+  setText("emptyTitle", t("等待扫描"));
+  setText("emptyMessage", t("匹配到的设备会显示在这里。"));
 }
 
 function formatTime(value) {
@@ -2632,7 +2773,7 @@ function formatTime(value) {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return parsed.toLocaleString("zh-CN", {
+  return parsed.toLocaleString(tLocale(), {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -2651,7 +2792,18 @@ function renderScanStatus(data, notifyTerminal) {
   var wasRunning = state.running;
   state.running = !!data.running;
   state.stopping = !!data.stopping;
+  state.paused = !!data.paused;
   state.scanStatus = data.status || "idle";
+  if (
+    state.scanStatus === "completed" &&
+    data.job_id &&
+    lastFinishedJobId !== data.job_id
+  ) {
+    lastFinishedJobId = data.job_id;
+    document.dispatchEvent(new CustomEvent("networklocator:scan-finished", {
+      detail: { jobId: data.job_id }
+    }));
+  }
   if (!state.targets.length) {
     var statusSuffixes = Array.isArray(data.suffixes) && data.suffixes.length
       ? data.suffixes
@@ -2700,87 +2852,98 @@ function renderScanStatus(data, notifyTerminal) {
 
   var percent = Number(data.progress_percent) || 0;
   if (state.running) {
-    if (state.scanStatus === "discovering") {
-      setProgress(0, true, "读取物理网卡与默认网关");
-      setText("resultSummary", "正在识别当前物理局域网。");
+    if (state.paused) {
+      setProgress(percent, false, t("扫描已暂停"));
+      setText(
+        "resultSummary",
+        t("扫描已暂停，已探测 ") + state.probedHosts + " / " + state.totalHosts + t(" 台主机。")
+      );
+      setScanState(
+        "idle",
+        t("扫描已暂停"),
+        t("点击暂停按钮旁的“继续”恢复扫描，已有结果会保留。")
+      );
+    } else if (state.scanStatus === "discovering") {
+      setProgress(0, true, t("读取物理网卡与默认网关"));
+      setText("resultSummary", t("正在识别当前物理局域网。"));
       setScanState(
         "running",
-        state.continuous ? "持续搜索中" : "正在识别网段",
+        state.continuous ? t("持续搜索中") : t("正在识别网段"),
         state.continuous
-          ? "正在刷新物理网段，完成后继续查找 " + activeTargetLabel() + "。"
-          : "读取 IPv4 地址、默认网关和安全的扫描范围。"
+          ? t("正在刷新物理网段，完成后继续查找 ") + activeTargetLabel() + "。"
+          : t("读取 IPv4 地址、默认网关和安全的扫描范围。")
       );
     } else {
-      setProgress(percent, false, "正在探测主机并读取邻居表");
+      setProgress(percent, false, t("正在探测主机并读取邻居表"));
       setText(
         "resultSummary",
         (state.continuous
-          ? "正在持续匹配 " + activeTargetLabel() +
+          ? t("正在持续匹配 ") + activeTargetLabel() +
             "（" + continuousRoundLabel() + "）"
-          : "正在匹配 " + activeTargetLabel()) +
-          "，已探测 " + state.probedHosts + " / " + state.totalHosts + " 台主机。"
+          : t("正在匹配 ") + activeTargetLabel()) +
+          t("，已探测 ") + state.probedHosts + " / " + state.totalHosts + t(" 台主机。")
       );
       setScanState(
         "running",
-        (state.continuous ? "持续搜索中 · " : "正在扫描 ") +
+        (state.continuous ? t("持续搜索中 · ") : t("正在扫描 ")) +
           (data.current_interface || ""),
-        (data.current_range || "准备扫描") +
-          " · 已探测 " + state.probedHosts + " 台主机。"
+        (data.current_range || t("准备扫描")) +
+          t(" · 已探测 ") + state.probedHosts + t(" 台主机。")
       );
     }
   } else if (state.scanStatus === "completed") {
-    setProgress(100, false, "扫描完成");
+    setProgress(100, false, t("扫描完成"));
     setHidden("scanProgress", true);
     if (state.searchFinished) {
       setScanState(
         state.searchExhausted ? "idle" : "success",
-        state.searchExhausted ? "轮询查找结束" : "查找完成",
+        state.searchExhausted ? t("轮询查找结束") : t("查找完成"),
         searchFinishedMessage()
       );
       setText("resultSummary", searchFinishedMessage());
     } else if (state.continuous && state.results.length) {
       setScanState(
         "success",
-        "已找到匹配设备",
-        activeTargetLabel() + " 找到 " + state.results.length +
-          " 条记录，下一轮搜索即将开始。"
+        t("已找到匹配设备"),
+        activeTargetLabel() + t(" 找到 ") + state.results.length +
+          t(" 条记录，下一轮搜索即将开始。")
       );
       setText(
         "resultSummary",
-        "持续搜索已找到 " + state.results.length +
-          " 台设备，下一轮会自动刷新（" + continuousRoundLabel() + "）。"
+        t("持续搜索已找到 ") + countUnit(state.results.length, " 台设备", "device", "devices") +
+          t("，下一轮会自动刷新（") + continuousRoundLabel() + "）。"
       );
     } else if (state.continuous) {
       setScanState(
         "success",
-        "当前没有搜索到",
-        continuousRoundLabel() + "未发现 " + pendingTargetLabel() +
-          "，将自动开始下一轮搜索。"
+        t("当前没有搜索到"),
+        continuousRoundLabel() + t("未发现 ") + pendingTargetLabel() +
+          t("，将自动开始下一轮搜索。")
       );
       setText(
         "resultSummary",
-        "当前没有搜索到 " + pendingTargetLabel() +
-          "，持续搜索仍在进行（" + continuousRoundLabel() + "）。"
+        t("当前没有搜索到 ") + pendingTargetLabel() +
+          t("，持续搜索仍在进行（") + continuousRoundLabel() + "）。"
       );
     } else if (state.results.length) {
       setScanState(
         "success",
-        "扫描完成",
-        activeTargetLabel() + " 找到 " + state.results.length + " 条匹配记录。"
+        t("扫描完成"),
+        activeTargetLabel() + t(" 找到 ") + countUnit(state.results.length, " 条匹配记录。", "matching record.", "matching records.")
       );
       setText(
         "resultSummary",
-        activeTargetLabel() + " 匹配到 " + state.results.length + " 台设备。"
+        activeTargetLabel() + t(" 匹配到 ") + countUnit(state.results.length, " 台设备。", "device.", "devices.")
       );
     } else {
       setScanState(
         "success",
-        "扫描完成",
-        "扫描了 " + state.totalHosts + " 台主机，未发现 " + activeTargetLabel() + "。"
+        t("扫描完成"),
+        t("扫描了 ") + state.totalHosts + t(" 台主机，未发现 ") + activeTargetLabel() + "。"
       );
       setText(
         "resultSummary",
-        "已扫描所选网段，未找到 " + activeTargetLabel() + "。"
+        t("已扫描所选网段，未找到 ") + activeTargetLabel() + "。"
       );
     }
   } else if (state.scanStatus === "stopped") {
@@ -2788,57 +2951,57 @@ function renderScanStatus(data, notifyTerminal) {
     if (state.continuous) {
       setScanState(
         "running",
-        "持续搜索中",
-        "上一轮任务已停止，将自动开始下一轮搜索。"
+        t("持续搜索中"),
+        t("上一轮任务已停止，将自动开始下一轮搜索。")
       );
-      setText("resultSummary", "持续搜索正在自动恢复当前查询。");
+      setText("resultSummary", t("持续搜索正在自动恢复当前查询。"));
     } else {
       setScanState(
         "idle",
-        "扫描已停止",
-        "已保留停止前找到的 " + state.results.length + " 条记录。"
+        t("扫描已停止"),
+        t("已保留停止前找到的 ") + countUnit(state.results.length, " 条记录。", "record.", "records.")
       );
-      setText("resultSummary", "扫描已停止，停止前的结果仍可选择和复制。");
+      setText("resultSummary", t("扫描已停止，停止前的结果仍可选择和复制。"));
     }
   } else if (state.scanStatus === "error") {
     setHidden("scanProgress", true);
     if (state.continuous) {
       setScanState(
         "running",
-        "等待 NAS 恢复",
-        "持续搜索已保留；服务恢复后会自动继续。"
+        t("等待 NAS 恢复"),
+        t("持续搜索已保留；服务恢复后会自动继续。")
       );
-      setText("resultSummary", "持续搜索等待服务恢复，找到设备后会自动显示。");
+      setText("resultSummary", t("持续搜索等待服务恢复，找到设备后会自动显示。"));
     } else {
-      setScanState("error", "扫描失败", data.error || "无法读取当前物理网段。");
-      setText("resultSummary", data.error || "扫描未完成。");
+      setScanState("error", t("扫描失败"), data.error || t("无法读取当前物理网段。"));
+      setText("resultSummary", data.error || t("扫描未完成。"));
     }
   } else {
     setHidden("scanProgress", true);
     if (state.continuous) {
       setScanState(
         "running",
-        "等待继续搜索",
-        "搜索任务已保留，将自动开始下一轮扫描。"
+        t("等待继续搜索"),
+        t("搜索任务已保留，将自动开始下一轮扫描。")
       );
-      setText("resultSummary", "持续搜索正在准备下一轮扫描。");
+      setText("resultSummary", t("持续搜索正在准备下一轮扫描。"));
     } else if (!state.networks.length) {
-      setScanState("error", "没有可扫描网段", "请刷新物理网卡和默认网关。");
+      setScanState("error", t("没有可扫描网段"), t("请刷新物理网卡和默认网关。"));
     } else if (!selectedNetworkIds().length) {
       setScanState(
         "idle",
-        "请选择网段",
-        "至少选择一个活动网段后即可开始扫描。"
+        t("请选择网段"),
+        t("至少选择一个活动网段后即可开始扫描。")
       );
     } else {
       setScanState(
         "idle",
-        "准备就绪",
+        t("准备就绪"),
         networkSelectionSummary() + "。"
       );
     }
     if (state.tableMode === "results" && !state.results.length) {
-      setText("resultSummary", "输入 MAC 后四位开始定位设备。");
+      setText("resultSummary", t("输入 MAC 后四位开始定位设备。"));
     }
   }
 
@@ -2851,20 +3014,20 @@ function renderScanStatus(data, notifyTerminal) {
   if (data.started_at || data.finished_at) {
     setText(
       "lastScanTime",
-      "扫描 " + formatTime(data.started_at || data.finished_at)
+      t("扫描 ") + formatTime(data.started_at || data.finished_at)
     );
   }
   if (state.totalHosts) {
     setText(
       "scanFooterMeta",
       state.running
-        ? "已探测 " + state.probedHosts + " / " + state.totalHosts
-        : "共探测 " + state.totalHosts + " 台主机"
+        ? t("已探测 ") + state.probedHosts + " / " + state.totalHosts
+        : t("共探测 ") + state.totalHosts + t(" 台主机")
     );
   } else if (state.tableMode === "results") {
     setText(
       "scanFooterMeta",
-      state.continuous ? "持续搜索运行中" : "等待网络扫描"
+      state.continuous ? t("持续搜索运行中") : t("等待网络扫描")
     );
   }
 
@@ -2874,14 +3037,14 @@ function renderScanStatus(data, notifyTerminal) {
         state.searchFinished
           ? searchFinishedMessage()
           : state.results.length
-            ? "扫描完成，找到 " + state.results.length + " 条匹配记录。"
-            : "扫描完成，未找到匹配设备。",
+            ? t("扫描完成，找到 ") + countUnit(state.results.length, " 条匹配记录。", "matching record.", "matching records.")
+            : t("扫描完成，未找到匹配设备。"),
         false
       );
     } else if (state.scanStatus === "stopped") {
-      toast("扫描已停止。", false);
+      toast(t("扫描已停止。"), false);
     } else if (state.scanStatus === "error") {
-      toast(data.error || "扫描失败。", true);
+      toast(data.error || t("扫描失败。"), true);
     }
   }
 
@@ -2903,7 +3066,7 @@ async function refreshNetworks(silent, refreshDeviceList) {
   byId("refreshButton").disabled = true;
   setText(
     "networkSummary",
-    isSilent ? "正在恢复活动网段" : "正在读取物理网卡"
+    isSilent ? t("正在恢复活动网段") : t("正在读取物理网卡")
   );
   try {
     var data = await apiRequest("networks", null);
@@ -2918,10 +3081,10 @@ async function refreshNetworks(silent, refreshDeviceList) {
     if (state.scanStatus === "idle") {
       setScanState(
         "idle",
-        "准备就绪",
+        t("准备就绪"),
         state.networks.length
           ? networkSelectionSummary() + "。"
-          : "没有找到带默认网关的物理网卡。"
+          : t("没有找到带默认网关的物理网卡。")
       );
     }
     return true;
@@ -2935,13 +3098,13 @@ async function refreshNetworks(silent, refreshDeviceList) {
     setText(
       "networkSummary",
       state.networks.length
-        ? "网段刷新失败 · 使用上次结果"
-        : "网段读取失败"
+        ? t("网段刷新失败 · 使用上次结果")
+        : t("网段读取失败")
     );
     if (!state.networks.length) {
       renderNetworkList();
       if (!isSilent) {
-        setScanState("error", "网段读取失败", message);
+        setScanState("error", t("网段读取失败"), message);
       }
     }
     renderWarnings();
@@ -2995,36 +3158,36 @@ async function verifyCachedNetworks() {
     if (changed) {
       var parts = [];
       if (added.length) {
-        parts.push("新增 " + added.length + " 个网段");
+        parts.push(t("新增 ") + countUnit(added.length, " 个网段", "network", "networks"));
       }
       if (removed.length) {
-        parts.push("移除 " + removed.length + " 个失效网段");
+        parts.push(t("移除 ") + countUnit(removed.length, " 个失效网段", "stale network", "stale networks"));
       }
-      setText("networkSummary", "网段已更新 · " + networkSelectionSummary());
+      setText("networkSummary", t("网段已更新 · ") + networkSelectionSummary());
       if (parts.length) {
         toast(parts.join("，") + "。", false);
       }
     } else {
-      setText("networkSummary", "网段未变化 · " + networkSelectionSummary());
+      setText("networkSummary", t("网段未变化 · ") + networkSelectionSummary());
     }
     if (state.scanStatus === "idle") {
       setScanState(
         "idle",
-        "准备就绪",
+        t("准备就绪"),
         state.networks.length
           ? networkSelectionSummary() + "。"
-          : "没有找到带默认网关的物理网卡。"
+          : t("没有找到带默认网关的物理网卡。")
       );
     }
     return { ok: true, changed: changed, added: added, removed: removed };
   } catch (error) {
     state.lastRequestErrorKind = error.kind || "";
     state.networkVerifiedAt = 0;
-    setText("networkSummary", "服务已连接 · 使用上次网段");
+    setText("networkSummary", t("服务已连接 · 使用上次网段"));
     if (state.tableMode === "devices" && !state.deviceCacheRestoredAt) {
       setText(
         "resultSummary",
-        "网段校验失败，显示上次保存的网段；可手动刷新设备总表。"
+        t("网段校验失败，显示上次保存的网段；可手动刷新设备总表。")
       );
     }
     return { ok: false, changed: false, added: [], removed: [] };
@@ -3039,24 +3202,24 @@ async function refreshDevices(showError) {
     return false;
   }
   if (!state.networks.length) {
-    setText("resultSummary", "当前没有可扫描的物理网段。");
+    setText("resultSummary", t("当前没有可扫描的物理网段。"));
     if (showError) {
-      toast("当前没有可扫描的物理网段。", true);
+      toast(t("当前没有可扫描的物理网段。"), true);
     }
     return false;
   }
   var networkIds = selectedNetworkIds();
   if (!networkIds.length) {
-    setText("resultSummary", "请至少选择一个活动网段后刷新设备总表。");
+    setText("resultSummary", t("请至少选择一个活动网段后刷新设备总表。"));
     if (showError) {
-      toast("请至少选择一个活动网段。", true);
+      toast(t("请至少选择一个活动网段。"), true);
     }
     return false;
   }
   state.inventoryScanning = true;
   var inventoryStartedAt = Date.now();
   updateControls();
-  setText("resultSummary", "正在主动探测当前网段内的设备。");
+  setText("resultSummary", t("正在主动探测当前网段内的设备。"));
   try {
     var data = await apiRequest(
       "devices/scan",
@@ -3074,10 +3237,10 @@ async function refreshDevices(showError) {
     setText(
       "resultSummary",
       state.devices.length
-        ? "当前网段共探测到 " + state.devices.length + " 台设备。"
-        : "当前网段中暂未探测到设备。"
+        ? t("当前网段共探测到 ") + countUnit(state.devices.length, " 台设备。", "device.", "devices.")
+        : t("当前网段中暂未探测到设备。")
     );
-    setText("scanFooterMeta", "已探测设备 " + state.devices.length + " 台");
+    setText("scanFooterMeta", t("已探测设备 ") + countUnit(state.devices.length, " 台", "device", "devices"));
     renderEmptyForStatus("idle");
     return true;
   } catch (error) {
@@ -3085,7 +3248,7 @@ async function refreshDevices(showError) {
       new Set(state.warnings.concat([describeError(error)]))
     );
     renderWarnings();
-    setText("resultSummary", "设备总表探测失败，请检查网络或服务状态。");
+    setText("resultSummary", t("设备总表探测失败，请检查网络或服务状态。"));
     if (showError) {
       toast(describeError(error), true);
     }
@@ -3104,7 +3267,7 @@ async function refreshDevices(showError) {
 
 function clearResultsForNewScan() {
   renderResults([], true);
-  setText("resultSummary", "正在启动扫描。");
+  setText("resultSummary", t("正在启动扫描。"));
 }
 
 function scheduleContinuousRestart(delay) {
@@ -3128,7 +3291,7 @@ function showContinuousWaiting(title, message, error) {
   setText("resultSummary", message);
   renderTargetSummary();
   if (error) {
-    setBackendState("offline", "等待服务恢复");
+    setBackendState("offline", t("等待服务恢复"));
   }
   renderEmptyForStatus("waiting");
   var visibleRows = visibleTableRows();
@@ -3145,8 +3308,8 @@ async function resumeContinuousSearch() {
   var generation = state.searchGeneration;
   setScanState(
     "running",
-    "持续搜索中",
-    "正在确认活动网段并准备下一轮搜索。"
+    t("持续搜索中"),
+    t("正在确认活动网段并准备下一轮搜索。")
   );
   var networkCheckFresh =
     state.networkVerifiedAt > 0 &&
@@ -3164,16 +3327,16 @@ async function resumeContinuousSearch() {
   }
   if (!networksReady) {
     if (state.lastRequestErrorKind === "session") {
-      setBackendState("warning", "需要重新登录");
+      setBackendState("warning", t("需要重新登录"));
       showContinuousWaiting(
-        "需要重新登录",
-        "持续搜索已保留。重新打开应用并恢复 TOS 会话后会自动继续。"
+        t("需要重新登录"),
+        t("持续搜索已保留。重新打开应用并恢复 TOS 会话后会自动继续。")
       );
       return;
     }
     showContinuousWaiting(
-      "等待 NAS 恢复",
-      "持续搜索已保留；服务恢复后会自动继续查找 " + activeTargetLabel() + "。",
+      t("等待 NAS 恢复"),
+      t("持续搜索已保留；服务恢复后会自动继续查找 ") + activeTargetLabel() + "。",
       true
     );
     scheduleContinuousRestart(nextServiceRetryDelay());
@@ -3181,20 +3344,20 @@ async function resumeContinuousSearch() {
   }
   if (!state.networks.length) {
     showContinuousWaiting(
-      "等待可用网段",
-      "当前没有可扫描的物理网段，将持续检查并在网段恢复后继续搜索。"
+      t("等待可用网段"),
+      t("当前没有可扫描的物理网段，将持续检查并在网段恢复后继续搜索。")
     );
     scheduleContinuousRestart(nextServiceRetryDelay());
     return;
   }
   if (!selectedNetworkIds().length) {
     showContinuousWaiting(
-      "等待选择网段",
-      "持续搜索已保留；请至少勾选一个活动网段，选择后会自动继续。"
+      t("等待选择网段"),
+      t("持续搜索已保留；请至少勾选一个活动网段，选择后会自动继续。")
     );
     return;
   }
-  setBackendState("online", "服务在线");
+  setBackendState("online", t("服务在线"));
   await startScan({ continuousCycle: true });
 }
 
@@ -3232,16 +3395,16 @@ async function pollScanStatus(generation) {
     state.lastRequestErrorKind = error.kind || "";
     if (state.continuous) {
       if (error.kind === "session") {
-        setBackendState("warning", "需要重新登录");
+        setBackendState("warning", t("需要重新登录"));
         showContinuousWaiting(
-          "需要重新登录",
-          "持续搜索已保留。重新打开应用并恢复 TOS 会话后会自动继续。"
+          t("需要重新登录"),
+          t("持续搜索已保留。重新打开应用并恢复 TOS 会话后会自动继续。")
         );
         return;
       }
       showContinuousWaiting(
-        "等待 NAS 恢复",
-        "与 NAS 的连接暂时中断；服务恢复后会自动继续搜索，已有结果会保留。",
+        t("等待 NAS 恢复"),
+        t("与 NAS 的连接暂时中断；服务恢复后会自动继续搜索，已有结果会保留。"),
         error
       );
       scheduleContinuousRestart(nextServiceRetryDelay());
@@ -3249,7 +3412,7 @@ async function pollScanStatus(generation) {
       state.running = false;
       state.stopping = false;
       updateControls();
-      setScanState("error", "状态读取失败", describeError(error));
+      setScanState("error", t("状态读取失败"), describeError(error));
       toast(describeError(error), true);
     }
   }
@@ -3292,7 +3455,9 @@ async function startScan(options) {
   }
   syncActiveSuffixState();
   var networkIds = selectedNetworkIds();
-  if (!state.networks.length) {
+  var customRanges = state.customRanges.slice();
+  var customOnly = customRanges.length > 0 && networkIds.length === 0;
+  if (!state.networks.length && !customRanges.length) {
     state.continuous = true;
     state.searchFinished = false;
     state.scanStatus = "waiting";
@@ -3300,14 +3465,14 @@ async function startScan(options) {
     renderTargetSummary();
     updateControls();
     showContinuousWaiting(
-      "等待可用网段",
-      "当前没有可扫描的物理网段，将持续检查并在网段恢复后继续查找 " +
+      t("等待可用网段"),
+      t("当前没有可扫描的物理网段，将持续检查并在网段恢复后继续查找 ") +
         activeTargetLabel() + "。"
     );
     scheduleContinuousRestart(nextServiceRetryDelay());
     return;
   }
-  if (!networkIds.length) {
+  if (!networkIds.length && !customRanges.length) {
     state.continuous = false;
     state.running = false;
     state.searchFinished = false;
@@ -3316,12 +3481,12 @@ async function startScan(options) {
     renderTargetSummary();
     setScanState(
       "error",
-      "未选择网段",
-      "请至少勾选一个活动网段后再开始扫描。"
+      t("未选择网段"),
+      t("请至少勾选一个活动网段后再开始扫描。")
     );
-    setText("resultSummary", "尚未选择扫描范围。");
+    setText("resultSummary", t("尚未选择扫描范围。"));
     updateControls();
-    toast("请至少选择一个活动网段。", true);
+    toast(t("请至少选择一个活动网段。"), true);
     return;
   }
 
@@ -3333,14 +3498,14 @@ async function startScan(options) {
   clearContinuousRestart();
   if (!startOptions.continuousCycle) {
     clearResultsForNewScan();
-    setProgress(0, true, "正在启动扫描");
-    setScanState("running", "正在启动扫描", "准备读取当前物理网段。");
+    setProgress(0, true, t("正在启动扫描"));
+    setScanState("running", t("正在启动扫描"), t("准备读取当前物理网段。"));
   } else {
-    setProgress(0, true, "正在继续持续搜索");
+    setProgress(0, true, t("正在继续持续搜索"));
     setScanState(
       "running",
-      "持续搜索中",
-      "准备重新读取网段并查找 " + activeTargetLabel() + "。"
+      t("持续搜索中"),
+      t("准备重新读取网段并查找 ") + activeTargetLabel() + "。"
     );
   }
   persistSearchIntent(state.results);
@@ -3350,14 +3515,16 @@ async function startScan(options) {
   try {
     await apiRequest("scan/start", {
       suffixes: normalizedSuffixes,
-      network_ids: networkIds
+      network_ids: customOnly ? [] : networkIds,
+      custom_ranges: customRanges,
+      custom_only: customOnly
     });
     if (generation !== state.searchGeneration) {
       return;
     }
     state.lastRequestErrorKind = "";
     resetServiceRetryDelay();
-    setBackendState("online", "服务在线");
+    setBackendState("online", t("服务在线"));
     scheduleScanPoll(350, generation);
   } catch (error) {
     if (generation !== state.searchGeneration) {
@@ -3372,8 +3539,8 @@ async function startScan(options) {
         return;
       });
       showContinuousWaiting(
-        "切换持续搜索",
-        "正在停止其他扫描任务，随后会继续搜索 " + activeTargetLabel() + "。"
+        t("切换持续搜索"),
+        t("正在停止其他扫描任务，随后会继续搜索 ") + activeTargetLabel() + "。"
       );
       scheduleContinuousRestart(CONTINUOUS_RESTART_DELAY_MS);
     } else if (error.kind === "rejected") {
@@ -3382,23 +3549,50 @@ async function startScan(options) {
       syncActiveSuffixState();
       discardSearchIntent();
       renderTargetSummary();
-      showInputError(error.detail || "MAC 后缀格式不正确。");
+      showInputError(error.detail || t("MAC 后缀格式不正确。"));
       updateControls();
-      toast(error.detail || "MAC 后缀格式不正确。", true);
+      toast(error.detail || t("MAC 后缀格式不正确。"), true);
     } else if (error.kind === "session") {
-      setBackendState("warning", "需要重新登录");
+      setBackendState("warning", t("需要重新登录"));
       showContinuousWaiting(
-        "需要重新登录",
-        "持续搜索已保留。重新打开应用并恢复 TOS 会话后会自动继续。"
+        t("需要重新登录"),
+        t("持续搜索已保留。重新打开应用并恢复 TOS 会话后会自动继续。")
       );
     } else {
       showContinuousWaiting(
-        "等待 NAS 恢复",
-        "扫描启动时连接中断；服务恢复后会自动继续搜索，已有结果会保留。",
+        t("等待 NAS 恢复"),
+        t("扫描启动时连接中断；服务恢复后会自动继续搜索，已有结果会保留。"),
         error
       );
       scheduleContinuousRestart(nextServiceRetryDelay());
     }
+  }
+}
+
+async function pauseScan() {
+  if (!state.running || state.stopping) {
+    return;
+  }
+  var endpoint = state.paused ? "scan/resume" : "scan/pause";
+  try {
+    var data = await apiRequest(endpoint, {});
+    state.paused = !!data.paused;
+    state.scanStatus = data.status || state.scanStatus;
+    updateControls();
+    if (state.paused) {
+      setScanState(
+        "idle",
+        t("扫描已暂停"),
+        t("点击“继续”恢复扫描，已有结果会保留。")
+      );
+      toast(t("扫描已暂停。"), false);
+    } else {
+      setScanState("running", t("扫描已恢复"), t("正在继续探测主机。"));
+      scheduleScanPoll(350, state.searchGeneration);
+      toast(t("扫描已继续。"), false);
+    }
+  } catch (error) {
+    toast(describeError(error), true);
   }
 }
 
@@ -3418,20 +3612,20 @@ async function stopScan() {
     setHidden("scanProgress", true);
     setScanState(
       "idle",
-      "持续搜索已停止",
-      "已保留停止前找到的 " + state.results.length + " 条记录。"
+      t("持续搜索已停止"),
+      t("已保留停止前找到的 ") + countUnit(state.results.length, " 条记录。", "record.", "records.")
     );
-    setText("resultSummary", "持续搜索已停止，已有结果仍可选择和复制。");
+    setText("resultSummary", t("持续搜索已停止，已有结果仍可选择和复制。"));
     renderEmptyForStatus("stopped");
     renderTargetSummary();
     updateControls();
-    toast("持续搜索已停止。", false);
+    toast(t("持续搜索已停止。"), false);
     return;
   }
   state.stopping = true;
   renderTargetSummary();
   updateControls();
-  setScanState("running", "正在停止扫描", "等待当前批次探测结束。");
+  setScanState("running", t("正在停止扫描"), t("等待当前批次探测结束。"));
   try {
     await apiRequest("scan/stop", {});
     scheduleScanPoll(250, generation);
@@ -3440,8 +3634,8 @@ async function stopScan() {
     state.stopping = false;
     state.scanStatus = "stopped";
     setHidden("scanProgress", true);
-    setScanState("idle", "扫描已停止", "无法确认后端状态，但不会自动重新开始搜索。");
-    setText("resultSummary", "搜索已停止，已有结果仍可选择和复制。");
+    setScanState("idle", t("扫描已停止"), t("无法确认后端状态，但不会自动重新开始搜索。"));
+    setText("resultSummary", t("搜索已停止，已有结果仍可选择和复制。"));
     renderEmptyForStatus("stopped");
     renderTargetSummary();
     updateControls();
@@ -3470,27 +3664,27 @@ async function writeClipboard(text) {
 
 async function copySelectedMac() {
   if (!state.selectedMac) {
-    toast("请先选择一条匹配结果。", true);
+    toast(t("请先选择一条匹配结果。"), true);
     return;
   }
   try {
     await writeClipboard(state.selectedMac);
-    toast("已复制 " + state.selectedMac, false);
+    toast(t("已复制 ") + state.selectedMac, false);
   } catch (error) {
-    toast("复制失败，请重试。", true);
+    toast(t("复制失败，请重试。"), true);
   }
 }
 
 async function copySelectedIp() {
   if (!state.selectedIp) {
-    toast("请先选择一条匹配结果。", true);
+    toast(t("请先选择一条匹配结果。"), true);
     return;
   }
   try {
     await writeClipboard(state.selectedIp);
-    toast("已复制 " + state.selectedIp, false);
+    toast(t("已复制 ") + state.selectedIp, false);
   } catch (error) {
-    toast("复制失败，请重试。", true);
+    toast(t("复制失败，请重试。"), true);
   }
 }
 
@@ -3498,7 +3692,7 @@ function exportVisibleCsv() {
   var csv = window.LanMacCsv;
   var rows = visibleTableRows();
   if (!csv || !rows.length) {
-    toast("当前没有可导出的设备记录。", true);
+    toast(t("当前没有可导出的设备记录。"), true);
     return;
   }
   var content = csv.buildCsv(rows);
@@ -3511,7 +3705,7 @@ function exportVisibleCsv() {
   link.click();
   link.remove();
   window.setTimeout(function () { URL.revokeObjectURL(url); }, 0);
-  toast("已导出 " + rows.length + " 条记录", false);
+  toast(t("已导出 ") + countUnit(rows.length, " 条记录", "record", "records"), false);
 }
 
 async function clearResults() {
@@ -3542,29 +3736,46 @@ async function clearResults() {
   setText(
     "resultSummary",
     state.devices.length
-      ? "当前网段共探测到 " + state.devices.length + " 台设备。"
-      : "当前网段中暂未探测到设备。"
+      ? t("当前网段共探测到 ") + countUnit(state.devices.length, " 台设备。", "device.", "devices.")
+      : t("当前网段中暂未探测到设备。")
   );
-  setText("scanFooterMeta", "已探测设备 " + state.devices.length + " 台");
+  setText("scanFooterMeta", t("已探测设备 ") + countUnit(state.devices.length, " 台", "device", "devices"));
   setScanState(
     "idle",
-    "准备就绪",
-    state.networks.length + " 个物理网段可用于扫描。"
+    t("准备就绪"),
+    countUnit(state.networks.length, " 个物理网段可用于扫描。", "physical network available for scanning.", "physical networks available for scanning.")
   );
   updateControls();
   await refreshNetworks();
 }
 
-function applyTheme(theme) {
-  document.documentElement.setAttribute("data-theme", theme);
+function applyTheme(theme, persist) {
+  var next = theme === "dark" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+  if (persist !== false) {
+    try {
+      window.localStorage.setItem("networkLocator.theme.v1", next);
+    } catch (error) {
+      /* storage may be blocked; the theme still applies for this session */
+    }
+  }
   var toggle = byId("themeToggle");
-  var isDark = theme === "dark";
-  toggle.setAttribute("aria-pressed", isDark ? "true" : "false");
-  toggle.setAttribute("aria-label", isDark ? "切换为浅色主题" : "切换为深色主题");
-  toggle.setAttribute(
-    "data-tooltip",
-    isDark ? "切换为浅色主题" : "切换为深色主题"
-  );
+  var isDark = next === "dark";
+  if (toggle) {
+    toggle.setAttribute("aria-pressed", isDark ? "true" : "false");
+    toggle.setAttribute("aria-label", isDark ? t("切换为浅色主题") : t("切换为深色主题"));
+    toggle.setAttribute(
+      "data-tooltip",
+      isDark ? t("切换为浅色主题") : t("切换为深色主题")
+    );
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("networklocator:theme", {
+      detail: { theme: next }
+    }));
+  } catch (error) {
+    /* CustomEvent is unavailable in some test hosts */
+  }
 }
 
 function toggleTheme() {
@@ -3838,18 +4049,18 @@ function initializePanelLayout() {
 }
 
 async function checkBackend(quiet) {
-  setBackendState("checking", "正在连接服务");
+  setBackendState("checking", t("正在连接服务"));
   try {
     var data = await refreshApiRoot();
-    setBackendState("online", "服务在线");
+    setBackendState("online", t("服务在线"));
     setText(
       "backendVersion",
-      "服务 v" + (data.version || "--") + " · Python " + (data.python || "--")
+      t("服务 v") + (data.version || "--") + " · Python " + (data.python || "--")
     );
     return true;
   } catch (error) {
-    setBackendState("offline", "服务不可用");
-    setText("backendVersion", "服务未连接");
+    setBackendState("offline", t("服务不可用"));
+    setText("backendVersion", t("服务未连接"));
     if (!quiet) {
       toast(describeError(error), true);
     }
@@ -3880,9 +4091,9 @@ function savedDeviceLabel(entry) {
 
 function copySavedIp(ip) {
   writeClipboard(ip).then(function () {
-    toast("已复制 " + ip, false);
+    toast(t("已复制 ") + ip, false);
   }).catch(function () {
-    toast("复制失败，请重试。", true);
+    toast(t("复制失败，请重试。"), true);
   });
 }
 
@@ -3896,8 +4107,8 @@ function savedDeviceIpCell(entry, matches) {
         ipLink.href = url;
         ipLink.target = "_blank";
         ipLink.rel = "noopener noreferrer";
-        ipLink.title = "在新标签页打开 " + url;
-        ipLink.setAttribute("aria-label", "打开 " + device.ip);
+        ipLink.title = t("在新标签页打开 ") + url;
+        ipLink.setAttribute("aria-label", t("打开 ") + device.ip);
         ipLink.addEventListener("click", function (event) {
           event.stopPropagation();
         });
@@ -3907,8 +4118,8 @@ function savedDeviceIpCell(entry, matches) {
       }
     });
     if (matches.length > 1) {
-      var count = createSavedElement("span", "saved-ip-count", matches.length + " 台");
-      count.title = "同一个 4 位后缀命中多台设备，请核对完整 MAC。";
+      var count = createSavedElement("span", "saved-ip-count", countUnit(matches.length, " 台", "device", "devices"));
+      count.title = t("同一个 4 位后缀命中多台设备，请核对完整 MAC。");
       cell.appendChild(count);
     }
     return cell;
@@ -3919,25 +4130,25 @@ function savedDeviceIpCell(entry, matches) {
       var staleLink = createSavedElement(
         "a",
         "saved-ip-stale ip-link",
-        entry.lastSeenIp + "（上次）"
+        entry.lastSeenIp + t("（上次）")
       );
       staleLink.href = staleUrl;
       staleLink.target = "_blank";
       staleLink.rel = "noopener noreferrer";
-      staleLink.title = "在新标签页打开 " + staleUrl;
-      staleLink.setAttribute("aria-label", "打开上次发现的 IP " + entry.lastSeenIp);
+      staleLink.title = t("在新标签页打开 ") + staleUrl;
+      staleLink.setAttribute("aria-label", t("打开上次发现的 IP ") + entry.lastSeenIp);
       staleLink.addEventListener("click", function (event) {
         event.stopPropagation();
       });
       cell.appendChild(staleLink);
     } else {
       cell.appendChild(
-        createSavedElement("span", "saved-ip-stale", entry.lastSeenIp + "（上次）")
+        createSavedElement("span", "saved-ip-stale", entry.lastSeenIp + t("（上次）"))
       );
     }
     return cell;
   }
-  cell.appendChild(createSavedElement("span", "saved-ip-empty", "未发现"));
+  cell.appendChild(createSavedElement("span", "saved-ip-empty", t("未发现")));
   return cell;
 }
 
@@ -3953,7 +4164,7 @@ function createSavedDeviceRow(entry) {
   main.setAttribute("role", "button");
   main.setAttribute(
     "aria-label",
-    "查看 " + savedDeviceLabel(entry) + " 的详情"
+    t("查看 ") + savedDeviceLabel(entry) + t(" 的详情")
   );
   main.addEventListener("click", function () {
     openSavedDeviceDialog("view", entry.id);
@@ -3968,7 +4179,7 @@ function createSavedDeviceRow(entry) {
   var note = createSavedElement(
     "span",
     "saved-device-note" + (entry.note ? "" : " is-empty"),
-    entry.note || "未填写用途"
+    entry.note || t("未填写用途")
   );
   var mac = createSavedElement(
     "span",
@@ -3991,8 +4202,8 @@ function createSavedDeviceRow(entry) {
 
   var editButton = createSavedElement("button", "icon-button saved-device-edit");
   editButton.type = "button";
-  editButton.title = "编辑";
-  editButton.setAttribute("aria-label", "编辑 " + savedDeviceLabel(entry));
+  editButton.title = t("编辑");
+  editButton.setAttribute("aria-label", t("编辑 ") + savedDeviceLabel(entry));
   editButton.innerHTML =
     '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
     '<path d="M4 20h4l10-10-4-4L4 16v4Z"></path>' +
@@ -4029,7 +4240,7 @@ function updateSavedDevicesLoading() {
   if (spinner) {
     spinner.hidden = !loading;
   }
-  setText("savedDevicesRefreshText", loading ? "刷新中…" : "刷新 IP");
+  setText("savedDevicesRefreshText", loading ? t("刷新中…") : t("刷新 IP"));
   var refresh = byId("savedDevicesRefresh");
   if (refresh) {
     refresh.disabled = loading;
@@ -4081,7 +4292,7 @@ function renderSavedDevices() {
     );
     toggle.setAttribute(
       "aria-label",
-      state.savedPanelCollapsed ? "展开我的设备" : "收起我的设备"
+      state.savedPanelCollapsed ? t("展开我的设备") : t("收起我的设备")
     );
   }
   var addButton = byId("addSavedDeviceButton");
@@ -4102,12 +4313,12 @@ function renderSavedDevices() {
 function fillSavedView(entry) {
   var matches = matchSavedMac(entry, state.devices);
   setText("savedViewMac", entry.display);
-  setText("savedViewNote", entry.note || "未填写用途");
+  setText("savedViewNote", entry.note || t("未填写用途"));
   var ipText = matches.map(function (device) {
     return device.ip;
   }).join("、");
   if (!ipText) {
-    ipText = entry.lastSeenIp ? entry.lastSeenIp + "（上次）" : "未发现";
+    ipText = entry.lastSeenIp ? entry.lastSeenIp + t("（上次）") : t("未发现");
   }
   setText("savedViewIp", ipText);
   setText("savedViewLastSeen", formatSavedLastSeen(entry, matches));
@@ -4164,7 +4375,7 @@ function openSavedDeviceDialog(mode, id) {
     return;
   }
   if (mode === "create" && state.savedMacs.length >= SAVED_MACS_LIMIT) {
-    toast("最多保存 " + SAVED_MACS_LIMIT + " 个 MAC。", true);
+    toast(t("最多保存 ") + SAVED_MACS_LIMIT + t(" 个 MAC。"), true);
     return;
   }
   var entry = null;
@@ -4185,8 +4396,8 @@ function openSavedDeviceDialog(mode, id) {
   var form = byId("savedDeviceForm");
   view.hidden = mode !== "view";
   form.hidden = mode === "view";
-  setText("savedDialogTitle", "已保存的 MAC");
-  setText("savedFormTitle", mode === "create" ? "添加 MAC" : "编辑 MAC");
+  setText("savedDialogTitle", t("已保存的 MAC"));
+  setText("savedFormTitle", mode === "create" ? t("添加 MAC") : t("编辑 MAC"));
   if (mode === "view") {
     fillSavedView(entry);
   } else {
@@ -4220,7 +4431,7 @@ function closeSavedDeviceDialog(force) {
     return;
   }
   if (!force && isSavedFormDirty()) {
-    askConfirm("有未保存的修改，确定关闭吗？", "放弃修改").then(function (ok) {
+    askConfirm(t("有未保存的修改，确定关闭吗？"), t("放弃修改")).then(function (ok) {
       if (ok) {
         closeSavedDeviceDialog(true);
       }
@@ -4244,7 +4455,7 @@ function validateSavedForm() {
   var noteInput = byId("savedNoteInput");
   var display = macInput.value.trim();
   if (!display) {
-    showSavedMacError("请输入 MAC 后四位。");
+    showSavedMacError(t("请输入 MAC 后四位。"));
     macInput.focus();
     return null;
   }
@@ -4259,7 +4470,7 @@ function validateSavedForm() {
     return item.normalized === normalized && item.id !== savedDialogId;
   });
   if (duplicate) {
-    showSavedMacError("这个 MAC 已经保存过了。");
+    showSavedMacError(t("这个 MAC 已经保存过了。"));
     macInput.focus();
     return null;
   }
@@ -4277,7 +4488,7 @@ function saveSavedDevice() {
   }
   var editing = savedDialogMode === "edit";
   if (!editing && state.savedMacs.length >= SAVED_MACS_LIMIT) {
-    showSavedMacError("最多保存 " + SAVED_MACS_LIMIT + " 个 MAC。");
+    showSavedMacError(t("最多保存 ") + SAVED_MACS_LIMIT + t(" 个 MAC。"));
     return;
   }
   var now = Date.now();
@@ -4325,7 +4536,7 @@ function saveSavedDevice() {
   renderSavedDevices();
   updateControls();
   openSavedDeviceDialog("view", targetId);
-  toast(editing ? "已更新" : "已保存", false);
+  toast(editing ? t("已更新") : t("已保存"), false);
 }
 
 function deleteSavedDevice() {
@@ -4333,7 +4544,7 @@ function deleteSavedDevice() {
   if (!id) {
     return;
   }
-  askConfirm("删除后不可恢复，确定删除这个 MAC 吗？", "删除").then(function (ok) {
+  askConfirm(t("删除后不可恢复，确定删除这个 MAC 吗？"), t("删除")).then(function (ok) {
     if (!ok) {
       return;
     }
@@ -4343,7 +4554,7 @@ function deleteSavedDevice() {
     renderSavedDevices();
     updateControls();
     closeSavedDeviceDialog(true);
-    toast("已删除", false);
+    toast(t("已删除"), false);
   });
 }
 
@@ -4355,7 +4566,7 @@ function useSavedForSearch() {
     return;
   }
   if (state.running || state.continuous || state.inventoryScanning) {
-    toast("当前正在扫描，请稍后再试。", true);
+    toast(t("当前正在扫描，请稍后再试。"), true);
     return;
   }
   var existing = suffixInputs().filter(function (input) {
@@ -4365,14 +4576,14 @@ function useSavedForSearch() {
     closeSavedDeviceDialog(true);
     existing.focus();
     existing.select();
-    toast("这个 MAC 已在输入框中。", false);
+    toast(t("这个 MAC 已在输入框中。"), false);
     return;
   }
   var values = suffixInputs().map(function (input) {
     return input.value.trim();
   }).filter(Boolean);
   if (values.length >= MAX_SUFFIX_INPUTS) {
-    toast("最多同时搜索 " + MAX_SUFFIX_INPUTS + " 个 MAC。", true);
+    toast(t("最多同时搜索 ") + MAX_SUFFIX_INPUTS + t(" 个 MAC。"), true);
     return;
   }
   setSuffixInputs(values.concat([entry.display]));
@@ -4382,7 +4593,7 @@ function useSavedForSearch() {
   if (lastInput) {
     lastInput.focus();
   }
-  toast("已填入 " + entry.display, false);
+  toast(t("已填入 ") + entry.display, false);
 }
 
 function askConfirm(message, confirmLabel) {
@@ -4390,7 +4601,7 @@ function askConfirm(message, confirmLabel) {
     confirmResolver = resolve;
     setText("confirmMessage", message);
     var okButton = byId("confirmOk");
-    okButton.textContent = confirmLabel || "确定";
+    okButton.textContent = confirmLabel || t("确定");
     byId("confirmDialog").hidden = false;
     okButton.focus();
   });
@@ -4442,7 +4653,7 @@ async function refreshSavedDevices() {
   var ok = await refreshDevices(true);
   renderSavedDevices();
   if (ok) {
-    toast("当前 IP 已刷新", false);
+    toast(t("当前 IP 已刷新"), false);
   }
 }
 
@@ -4696,7 +4907,7 @@ function bindEvents() {
   if (addSuffixButton) {
     addSuffixButton.addEventListener("click", function () {
       if (!addSuffixRow("", true)) {
-        toast("最多同时搜索 " + MAX_SUFFIX_INPUTS + " 个 MAC。", true);
+        toast(t("最多同时搜索 ") + MAX_SUFFIX_INPUTS + t(" 个 MAC。"), true);
       }
     });
   }
@@ -4736,6 +4947,43 @@ function bindEvents() {
     startScan();
   });
   byId("stopButton").addEventListener("click", stopScan);
+  var pauseButton = byId("pauseButton");
+  if (pauseButton) {
+    pauseButton.addEventListener("click", pauseScan);
+  }
+  var addRangeButton = byId("addCustomRangeButton");
+  if (addRangeButton) {
+    addRangeButton.addEventListener("click", function () {
+      var input = byId("customRangeInput");
+      if (input && addCustomRange(input.value)) {
+        input.value = "";
+        input.focus();
+      }
+    });
+  }
+  var customRangeInput = byId("customRangeInput");
+  if (customRangeInput) {
+    customRangeInput.addEventListener("keydown", function (event) {
+      if (event.key !== "Enter") {
+        return;
+      }
+      event.preventDefault();
+      if (addCustomRange(customRangeInput.value)) {
+        customRangeInput.value = "";
+      }
+    });
+  }
+  var customRangeChips = byId("customRangeChips");
+  if (customRangeChips) {
+    customRangeChips.addEventListener("click", function (event) {
+      var target = event.target && event.target.closest
+        ? event.target.closest("[data-custom-range]")
+        : null;
+      if (target) {
+        removeCustomRange(target.getAttribute("data-custom-range"));
+      }
+    });
+  }
   byId("refreshButton").addEventListener("click", function () {
     refreshNetworks();
   });
@@ -4803,11 +5051,13 @@ function bindEvents() {
 }
 
 async function boot() {
-  applyTheme(document.documentElement.getAttribute("data-theme") || "light");
+  applyTheme(document.documentElement.getAttribute("data-theme") || "light", false);
   initializePanelLayout();
   bindEvents();
   bindTooltips();
   state.savedMacs = readSavedMacs();
+  state.customRanges = readCustomRanges();
+  renderCustomRanges();
   bindSavedDeviceEvents();
   renderSavedDevices();
   var restored = restoreSearchIntent();
@@ -4820,13 +5070,13 @@ async function boot() {
     renderNetworkList();
     setText(
       "networkSummary",
-      "已恢复上次网段" +
+      t("已恢复上次网段") +
         (state.networkCacheRestoredAt
           ? "（" + formatTime(state.networkCacheRestoredAt) + "）"
           : "")
     );
     if (!restored && !cachedDevices) {
-      setText("resultSummary", "已恢复上次网段，正在后台快速校验。");
+      setText("resultSummary", t("已恢复上次网段，正在后台快速校验。"));
     }
   }
   updateControls();
@@ -4834,10 +5084,10 @@ async function boot() {
     if (!restored) {
       setScanState(
         "idle",
-        "准备就绪",
+        t("准备就绪"),
         state.networks.length
           ? networkSelectionSummary() + "。"
-          : "没有找到带默认网关的物理网卡。"
+          : t("没有找到带默认网关的物理网卡。")
       );
     }
     renderWarnings();
@@ -4868,8 +5118,8 @@ async function boot() {
       ) {
         await apiRequest("scan/stop", {});
         showContinuousWaiting(
-          "切换持续搜索",
-          "正在停止旧任务，随后会继续搜索 " + activeTargetLabel() + "。"
+          t("切换持续搜索"),
+          t("正在停止旧任务，随后会继续搜索 ") + activeTargetLabel() + "。"
         );
         scheduleContinuousRestart(CONTINUOUS_RESTART_DELAY_MS);
         return;
@@ -4885,45 +5135,85 @@ async function boot() {
       if (state.continuous) {
         if (error.kind === "session") {
           showContinuousWaiting(
-            "需要重新登录",
-            "持续搜索已保留。重新打开应用并恢复 TOS 会话后会自动继续。"
+            t("需要重新登录"),
+            t("持续搜索已保留。重新打开应用并恢复 TOS 会话后会自动继续。")
           );
         } else {
           showContinuousWaiting(
-            "等待 NAS 恢复",
-            "服务恢复后会自动继续搜索，已有结果会保留。",
+            t("等待 NAS 恢复"),
+            t("服务恢复后会自动继续搜索，已有结果会保留。"),
             error
           );
           scheduleContinuousRestart(nextServiceRetryDelay());
         }
       } else {
-        setScanState("error", "状态读取失败", describeError(error));
+        setScanState("error", t("状态读取失败"), describeError(error));
       }
     }
   } else {
     if (!cachedNetworks) {
       state.networks = [];
       state.warnings = [describeError(new Error("backend unavailable"))];
-      setText("networkSummary", "服务未连接");
+      setText("networkSummary", t("服务未连接"));
       renderNetworkList();
       renderWarnings();
       updateControls();
     } else {
-      setText("networkSummary", "服务未连接 · 使用上次网段");
+      setText("networkSummary", t("服务未连接 · 使用上次网段"));
       if (state.tableMode === "devices" && !cachedDevices) {
-        setText("resultSummary", "服务未连接，当前显示上次保存的网段。");
+        setText("resultSummary", t("服务未连接，当前显示上次保存的网段。"));
       }
     }
     if (state.continuous) {
       showContinuousWaiting(
-        "等待 NAS 恢复",
-        "持续搜索已保留；服务恢复后会自动继续查找 " + activeTargetLabel() + "。",
+        t("等待 NAS 恢复"),
+        t("持续搜索已保留；服务恢复后会自动继续查找 ") + activeTargetLabel() + "。",
         true
       );
       scheduleContinuousRestart(nextServiceRetryDelay());
     }
   }
 }
+
+function relayoutPanels() {
+  var storedSidebar = readStoredJson(SIDEBAR_WIDTH_KEY);
+  var storedPane = readStoredJson(SCAN_PANE_HEIGHT_KEY);
+  applySidebarWidth(storedSidebar || DEFAULT_SIDEBAR_WIDTH, false);
+  applyScanPaneHeight(storedPane || DEFAULT_SCAN_PANE_HEIGHT, false);
+  updateWorkspaceDensity();
+}
+
+window.NetworkLocatorApp = {
+  state: state,
+  applyTheme: applyTheme,
+  exportCsv: exportVisibleCsv,
+  refreshDevices: refreshDevices,
+  apiRequest: apiRequest,
+  toast: toast,
+  formatTime: formatTime,
+  stateClass: stateClass,
+  stateLabel: stateLabel,
+  writeClipboard: writeClipboard,
+  setBackendState: setBackendState,
+  describeError: describeError,
+  relayoutPanels: relayoutPanels,
+  snapshot: function () {
+    var devices = Array.isArray(state.devices) ? state.devices : [];
+    var online = devices.filter(function (device) {
+      var value = String(device && device.state || "").toUpperCase();
+      return value === "REACHABLE" || value === "LOCAL";
+    }).length;
+    return {
+      devices: devices.length,
+      online: online,
+      networks: Array.isArray(state.networks) ? state.networks.length : 0,
+      saved: Array.isArray(state.savedMacs) ? state.savedMacs.length : 0,
+      running: !!state.running,
+      inventoryScanning: !!state.inventoryScanning,
+      lastScanAt: state.jobId ? Date.now() : 0
+    };
+  }
+};
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", boot);

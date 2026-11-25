@@ -10,11 +10,18 @@
   <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=__APP_VERSION__">
   <script>
     (function () {
-      var theme = "light";
+      var theme = "";
       try {
-        theme = window.parent.localStorage.getItem("themeMode") || "";
+        theme = window.localStorage.getItem("networkLocator.theme.v1") || "";
       } catch (error) {
         theme = "";
+      }
+      if (theme !== "light" && theme !== "dark") {
+        try {
+          theme = window.parent.localStorage.getItem("themeMode") || "";
+        } catch (error) {
+          theme = "";
+        }
       }
       if (theme !== "light" && theme !== "dark") {
         theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -25,6 +32,9 @@
     }());
   </script>
   <link rel="stylesheet" href="./styles.css?v=__APP_VERSION__">
+  <link rel="stylesheet" href="./v2-tokens.css?v=__APP_VERSION__">
+  <link rel="stylesheet" href="./v2-shell.css?v=__APP_VERSION__">
+  <link rel="stylesheet" href="./v2-pages.css?v=__APP_VERSION__">
 </head>
 <body>
   <div class="resize-safety-corner" aria-hidden="true"></div>
@@ -42,7 +52,165 @@
     </div>
   </header>
 
-  <div class="app-shell">
+  <div class="v2-frame">
+    <nav class="v2-nav" aria-label="主导航">
+      <div class="v2-nav-head">
+        <span class="v2-nav-kicker">Network Locator</span>
+      </div>
+      <div class="v2-nav-items">
+        <button class="v2-nav-item is-active" type="button" data-route="dashboard" aria-current="page">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg>
+          <span class="v2-nav-label">设备总览</span>
+        </button>
+        <button class="v2-nav-item" type="button" data-route="discovery">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="2.5"></circle><path d="M7.8 7.8a6 6 0 0 0 0 8.4"></path><path d="M16.2 7.8a6 6 0 0 1 0 8.4"></path><path d="M4.9 4.9a10 10 0 0 0 0 14.2"></path><path d="M19.1 4.9a10 10 0 0 1 0 14.2"></path></svg>
+          <span class="v2-nav-label">网络扫描</span>
+        </button>
+        <button class="v2-nav-item" type="button" data-route="inventory">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect><path d="M7 7h.01"></path><path d="M7 17h.01"></path></svg>
+          <span class="v2-nav-label">设备管理</span>
+        </button>
+        <button class="v2-nav-item" type="button" data-route="mac-lookup">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m15.3 15.3 5.2 5.2"></path><path d="M7 10.5h7"></path></svg>
+          <span class="v2-nav-label">MAC 定位</span>
+        </button>
+        <button class="v2-nav-item" type="button" data-route="analysis">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 19V5"></path><path d="M4 19h16"></path><path d="m7 15 3-4 3 2 4-6"></path></svg>
+          <span class="v2-nav-label">网络分析</span>
+        </button>
+        <button class="v2-nav-item" type="button" data-route="history">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7v5l3 2"></path></svg>
+          <span class="v2-nav-label">扫描历史</span>
+        </button>
+        <button class="v2-nav-item" type="button" data-route="settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.1.4.3.7.6 1 .3.2.7.4 1.1.4H21v4h-.09a1.7 1.7 0 0 0-1.51.6Z"></path></svg>
+          <span class="v2-nav-label">系统设置</span>
+        </button>
+      </div>
+      <div class="v2-nav-footer">
+        <span id="v2NavVersion" class="v2-nav-version">v--</span>
+      </div>
+    </nav>
+
+    <div class="v2-main">
+      <header class="v2-toolbar">
+        <div class="v2-toolbar-copy">
+          <h1 id="v2PageTitle">设备总览</h1>
+          <p id="v2PageSubtitle">查看局域网设备、网段与最近发现情况。</p>
+        </div>
+        <div class="v2-toolbar-actions">
+          <button id="v2ThemeToggle" class="v2-icon-button" type="button" aria-label="切换明暗主题" data-tooltip="切换明暗主题">
+            <svg class="v2-theme-light" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z"></path></svg>
+            <svg class="v2-theme-dark" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4"></circle><path d="M12 3v2"></path><path d="M12 19v2"></path><path d="M3 12h2"></path><path d="M19 12h2"></path><path d="m5.6 5.6 1.4 1.4"></path><path d="m17 17 1.4 1.4"></path><path d="m18.4 5.6-1.4 1.4"></path><path d="M7 17 5.6 18.4"></path></svg>
+          </button>
+          <button id="v2LocaleToggle" class="v2-locale-button" type="button" aria-label="切换语言">EN</button>
+        </div>
+      </header>
+
+      <main class="v2-content">
+        <section class="v2-page" data-page="dashboard">
+          <div class="v2-section-head">
+            <div>
+              <h2>运行概览</h2>
+              <p id="v2DashUpdated">正在读取网络与设备状态</p>
+            </div>
+            <div class="v2-inline-actions">
+              <button id="v2DashRefresh" class="v2-button" type="button">刷新</button>
+              <button id="v2ScanNow" class="v2-button v2-button-primary" type="button">立即扫描</button>
+            </div>
+          </div>
+          <div id="v2DashWarnings" class="v2-warning" hidden></div>
+          <div class="v2-stats">
+            <article class="v2-stat">
+              <span class="v2-stat-label">设备总数</span>
+              <strong id="v2StatDevices" class="v2-stat-value">0</strong>
+              <span class="v2-stat-note">已建立档案</span>
+            </article>
+            <article class="v2-stat">
+              <span class="v2-stat-label">在线设备</span>
+              <strong id="v2StatOnline" class="v2-stat-value">0</strong>
+              <span class="v2-stat-note">最近扫描确认</span>
+            </article>
+            <article class="v2-stat">
+              <span class="v2-stat-label">离线 / 未知</span>
+              <strong id="v2StatOffline" class="v2-stat-value">0</strong>
+              <span class="v2-stat-note">需要复查</span>
+            </article>
+            <article class="v2-stat">
+              <span class="v2-stat-label">活动网段</span>
+              <strong id="v2StatNetworks" class="v2-stat-value">0</strong>
+              <span class="v2-stat-note">本机可扫描</span>
+            </article>
+            <article class="v2-stat">
+              <span class="v2-stat-label">收藏设备</span>
+              <strong id="v2StatSaved" class="v2-stat-value">0</strong>
+              <span class="v2-stat-note">重点关注</span>
+            </article>
+            <article class="v2-stat">
+              <span class="v2-stat-label">今日扫描</span>
+              <strong id="v2StatScans" class="v2-stat-value">0</strong>
+              <span class="v2-stat-note">已完成任务</span>
+            </article>
+          </div>
+          <div class="v2-grid-2">
+            <section class="v2-card">
+              <header class="v2-card-header"><h2>当前接口与网段</h2></header>
+              <div id="v2NetworkList" class="v2-list"></div>
+              <p id="v2NetworkEmpty" class="v2-empty">尚未扫描</p>
+            </section>
+            <section class="v2-card">
+              <header class="v2-card-header"><h2>最近发现设备</h2></header>
+              <div id="v2RecentList" class="v2-list"></div>
+              <p id="v2RecentEmpty" class="v2-empty">暂无设备</p>
+            </section>
+          </div>
+          <section class="v2-card v2-table-card">
+            <header class="v2-card-header v2-card-header-row">
+              <div>
+                <h2>全部设备 <span id="v2DashDeviceCount" class="v2-count">0</span></h2>
+                <p id="v2DashTableHint" class="v2-card-copy">设备档案按最近发现时间排序。</p>
+              </div>
+              <div class="v2-table-tools">
+                <input id="v2DashSearch" class="v2-input" type="search" placeholder="搜索名称、IP、MAC、厂商" autocomplete="off">
+                <select id="v2DashStatus" class="v2-select">
+                  <option value="">全部状态</option>
+                  <option value="online">在线</option>
+                  <option value="offline">离线</option>
+                  <option value="unknown">未知</option>
+                </select>
+                <select id="v2DashSort" class="v2-select">
+                  <option value="last_seen">最近发现</option>
+                  <option value="ip">IP 地址</option>
+                  <option value="name">设备名称</option>
+                  <option value="vendor">厂商</option>
+                  <option value="status">状态</option>
+                </select>
+                <button id="v2Export" class="v2-button" type="button">导出 CSV</button>
+              </div>
+            </header>
+            <div class="v2-table-wrap">
+              <table class="v2-table v2-device-table">
+                <thead>
+                  <tr>
+                    <th>设备</th>
+                    <th>IP 地址</th>
+                    <th>MAC 地址</th>
+                    <th>厂商</th>
+                    <th>状态</th>
+                    <th>最近发现</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="v2DashTableBody"></tbody>
+              </table>
+            </div>
+            <div id="v2DashEmpty" class="v2-empty-state" hidden>还没有设备档案，先运行一次扫描。</div>
+            <div id="v2DashLoading" class="v2-loading" hidden><span class="v2-spinner"></span> 正在加载设备…</div>
+          </section>
+        </section>
+
+        <section class="v2-page v2-page--discovery" data-page="discovery" hidden>
+          <div class="app-shell">
     <aside class="sidebar" aria-label="MAC 查询控制">
       <section class="control-section scan-control">
         <div class="section-heading">
@@ -129,6 +297,18 @@
               </svg>
               <span>停止</span>
             </button>
+            <button
+              id="pauseButton"
+              class="secondary-button pause-button"
+              type="button"
+              disabled
+              data-tooltip="暂停或继续当前扫描">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <rect x="7" y="5" width="3" height="14" rx="1"></rect>
+                <rect x="14" y="5" width="3" height="14" rx="1"></rect>
+              </svg>
+              <span id="pauseButtonText">暂停</span>
+            </button>
           </div>
         </form>
 
@@ -204,6 +384,24 @@
         <div id="networkSummary" class="network-summary">正在识别网段</div>
         <div id="networkList" class="network-list" aria-live="polite"></div>
         <div id="networkWarnings" class="network-warnings" hidden></div>
+
+        <div class="custom-range-block">
+          <div class="custom-range-heading">
+            <span class="field-label">自定义范围</span>
+            <span class="field-hint">可选</span>
+          </div>
+          <div class="custom-range-row">
+            <input
+              id="customRangeInput"
+              type="text"
+              placeholder="192.168.1.0/24 或 10.0.0.10-10.0.0.20"
+              spellcheck="false"
+              autocomplete="off">
+            <button id="addCustomRangeButton" class="secondary-button" type="button">添加</button>
+          </div>
+          <div id="customRangeChips" class="custom-range-chips" hidden></div>
+          <p class="field-hint">未选择活动网段时，将只扫描这些自定义范围。</p>
+        </div>
       </section>
 
       <footer class="sidebar-footer">
@@ -222,7 +420,7 @@
       aria-orientation="vertical"
       aria-valuemin="280"
       aria-valuemax="560"
-      aria-valuenow="304"
+      aria-valuenow="280"
       data-tooltip="拖动调整左右区域，双击恢复默认宽度">
       <span class="resizer-grip" aria-hidden="true"></span>
     </div>
@@ -427,7 +625,333 @@
         <span id="scanFooterMeta" class="scan-footer-meta">等待网络扫描</span>
       </footer>
     </main>
+          </div>
+        </section>
+
+        <section class="v2-page" data-page="inventory" hidden>
+          <div class="v2-section-head">
+            <div>
+              <h2>设备档案</h2>
+              <p id="v2InvSummary">正在读取设备</p>
+            </div>
+            <div class="v2-inline-actions">
+              <button id="v2InvScan" class="v2-button v2-button-primary" type="button">扫描设备</button>
+              <button id="v2InvRefresh" class="v2-button" type="button">刷新</button>
+              <button id="v2InvExport" class="v2-button" type="button">导出全部</button>
+            </div>
+          </div>
+          <div class="v2-segmented v2-filter-tabs" id="v2InvFilters" role="group" aria-label="设备筛选">
+            <button type="button" data-status-filter="" class="is-active">全部 <span id="v2InvCountAll">0</span></button>
+            <button type="button" data-status-filter="online">在线 <span id="v2InvCountOnline">0</span></button>
+            <button type="button" data-status-filter="offline">离线 <span id="v2InvCountOffline">0</span></button>
+            <button type="button" data-status-filter="unknown">未知 <span id="v2InvCountUnknown">0</span></button>
+            <button type="button" data-favorite-filter="1">收藏 <span id="v2InvCountFavorite">0</span></button>
+          </div>
+          <div class="v2-toolbar-row">
+            <input id="v2InvSearch" class="v2-input" type="search" placeholder="搜索名称、IP、MAC、厂商、网段" autocomplete="off">
+            <select id="v2InvSort" class="v2-select">
+              <option value="name">按名称</option>
+              <option value="ip">按 IP</option>
+              <option value="mac">按 MAC</option>
+              <option value="vendor">按厂商</option>
+              <option value="status">按状态</option>
+              <option value="last_seen" selected>按最近发现</option>
+              <option value="first_seen">按首次发现</option>
+              <option value="network">按网段</option>
+            </select>
+            <select id="v2InvDirection" class="v2-select">
+              <option value="desc">降序</option>
+              <option value="asc">升序</option>
+            </select>
+            <button id="v2InvClear" class="v2-button" type="button">清除筛选</button>
+          </div>
+          <div id="v2InvBulk" class="v2-bulk-bar" hidden>
+            <span id="v2InvBulkText">已选 0 台</span>
+            <button id="v2InvBulkFavorite" class="v2-button" type="button">收藏所选</button>
+            <button id="v2InvBulkExport" class="v2-button" type="button">导出所选</button>
+            <button id="v2InvBulkClear" class="v2-button" type="button">取消选择</button>
+          </div>
+          <section class="v2-card v2-table-card">
+            <div class="v2-table-wrap">
+              <table class="v2-table v2-device-table">
+                <thead>
+                  <tr>
+                    <th class="v2-check-col"><input id="v2InvSelectAll" type="checkbox" aria-label="全选当前设备"></th>
+                    <th>设备</th>
+                    <th>IP 地址</th>
+                    <th>MAC 地址</th>
+                    <th>厂商</th>
+                    <th>状态</th>
+                    <th>网段</th>
+                    <th>最近发现</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="v2InvTableBody"></tbody>
+              </table>
+            </div>
+            <div id="v2InvEmpty" class="v2-empty-state" hidden>没有匹配的设备。</div>
+            <div id="v2InvLoading" class="v2-loading" hidden><span class="v2-spinner"></span> 正在加载设备…</div>
+          </section>
+        </section>
+
+        <section class="v2-page" data-page="mac-lookup" hidden>
+          <div class="v2-grid-2 v2-lookup-grid">
+            <section class="v2-card">
+              <header class="v2-card-header"><h2>查询 MAC</h2></header>
+              <p class="v2-card-copy">支持完整 MAC、OUI 前缀（6 位）或后缀（4 位），输入格式自动识别。</p>
+              <div class="v2-field">
+                <label for="v2MacInput">MAC 地址 / 前缀 / 后缀</label>
+                <input id="v2MacInput" class="v2-input" type="text" placeholder="AA-BB-CC-DD-EE-FF / AA:BB:CC / 1A:2B" autocomplete="off" spellcheck="false">
+                <p id="v2MacHint" class="v2-hint">等待输入</p>
+              </div>
+              <div class="v2-field">
+                <label for="v2MacMode">查询方式</label>
+                <select id="v2MacMode" class="v2-select">
+                  <option value="auto">自动识别</option>
+                  <option value="full">完整 MAC</option>
+                  <option value="prefix">前缀 / 厂商</option>
+                  <option value="suffix">后缀</option>
+                  <option value="any">包含片段</option>
+                </select>
+              </div>
+              <div class="v2-field">
+                <label class="v2-check"><input id="v2MacBatchToggle" type="checkbox"> 批量查询（每行一个）</label>
+                <textarea id="v2MacBatch" class="v2-textarea" hidden placeholder="AA-BB-CC-DD-EE-FF&#10;AA:BB:CC&#10;1A:2B"></textarea>
+              </div>
+              <div class="v2-inline-actions">
+                <button id="v2MacSearch" class="v2-button v2-button-primary" type="button">查询</button>
+                <button id="v2MacClear" class="v2-button" type="button">清空</button>
+              </div>
+              <div id="v2MacVendor" class="v2-note" hidden></div>
+            </section>
+            <section class="v2-card">
+              <header class="v2-card-header"><h2>查询说明</h2></header>
+              <dl class="v2-about">
+                <div><dt>完整 MAC</dt><dd>精确匹配设备地址记录</dd></div>
+                <div><dt>6 位前缀</dt><dd>识别 OUI 厂商并检索</dd></div>
+                <div><dt>4 位后缀</dt><dd>兼容原有的后四位定位</dd></div>
+                <div><dt>数据来源</dt><dd>设备档案 + 当前扫描结果</dd></div>
+              </dl>
+              <p class="v2-card-copy">厂商库覆盖常见 LAN 设备；未收录前缀会明确显示“未知厂商”，不会猜测。</p>
+            </section>
+          </div>
+          <section class="v2-card">
+            <header class="v2-card-header"><h2>查询结果 <span id="v2MacCount" class="v2-count">0</span></h2></header>
+            <div id="v2MacResults" class="v2-results"></div>
+            <div id="v2MacEmpty" class="v2-empty-state">输入 MAC 后开始查询。</div>
+          </section>
+        </section>
+
+        <section class="v2-page" data-page="analysis" hidden>
+          <div class="v2-section-head">
+            <div>
+              <h2>网络分析</h2>
+              <p id="v2AnalysisSummary">正在读取接口与网关</p>
+            </div>
+            <div class="v2-inline-actions">
+              <button id="v2AnalysisRefresh" class="v2-button" type="button">刷新</button>
+              <button id="v2GatewayTest" class="v2-button v2-button-primary" type="button">检测网关</button>
+            </div>
+          </div>
+          <div id="v2AnalysisWarnings" class="v2-warning" hidden></div>
+          <div class="v2-grid-2">
+            <section class="v2-card">
+              <header class="v2-card-header"><h2>接口信息</h2></header>
+              <div id="v2AnalysisInterfaces" class="v2-list"></div>
+              <div id="v2AnalysisInterfacesEmpty" class="v2-empty">未发现带默认网关的物理接口。</div>
+            </section>
+            <section class="v2-card">
+              <header class="v2-card-header"><h2>网关与 DNS</h2></header>
+              <div id="v2AnalysisGateway" class="v2-list"></div>
+              <div class="v2-subhead">DNS 服务器</div>
+              <div id="v2AnalysisDns" class="v2-list"></div>
+              <div id="v2AnalysisDnsEmpty" class="v2-empty">未读取到 DNS 配置。</div>
+            </section>
+          </div>
+          <section class="v2-card">
+            <header class="v2-card-header"><h2>网段设备分布</h2></header>
+            <div id="v2AnalysisNetworks" class="v2-table-wrap"></div>
+            <div id="v2AnalysisNetworksEmpty" class="v2-empty">暂无设备统计。</div>
+          </section>
+          <div class="v2-grid-2">
+            <section class="v2-card">
+              <header class="v2-card-header"><h2>Ping 连通性</h2></header>
+              <div class="v2-inline-form">
+                <input id="v2PingHost" class="v2-input" type="text" placeholder="192.168.1.1 或 hostname" autocomplete="off">
+                <select id="v2PingCount" class="v2-select">
+                  <option value="4">4 次</option>
+                  <option value="2">2 次</option>
+                  <option value="6">6 次</option>
+                  <option value="10">10 次</option>
+                </select>
+                <button id="v2PingRun" class="v2-button v2-button-primary" type="button">开始 Ping</button>
+              </div>
+              <div id="v2PingResult" class="v2-empty">尚未测试</div>
+            </section>
+            <section class="v2-card">
+              <header class="v2-card-header"><h2>厂商分布</h2></header>
+              <div id="v2AnalysisVendors" class="v2-list"></div>
+              <div id="v2AnalysisVendorsEmpty" class="v2-empty">暂无设备统计。</div>
+            </section>
+          </div>
+        </section>
+
+        <section class="v2-page" data-page="history" hidden>
+          <div class="v2-section-head">
+            <div>
+              <h2>扫描任务</h2>
+              <p id="v2HistorySummary">正在读取扫描历史</p>
+            </div>
+            <div class="v2-inline-actions">
+              <button id="v2HistoryRefresh" class="v2-button" type="button">刷新</button>
+              <button id="v2HistoryPurge" class="v2-button" type="button">清理旧记录</button>
+            </div>
+          </div>
+          <section class="v2-card v2-table-card">
+            <div class="v2-table-wrap">
+              <table class="v2-table">
+                <thead>
+                  <tr>
+                    <th>完成时间</th>
+                    <th>类型</th>
+                    <th>扫描范围</th>
+                    <th>状态</th>
+                    <th>发现</th>
+                    <th>新增</th>
+                    <th>离线</th>
+                    <th>IP 变化</th>
+                    <th>耗时</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="v2HistoryTableBody"></tbody>
+              </table>
+            </div>
+            <div id="v2HistoryEmpty" class="v2-empty-state" hidden>暂无扫描历史，完成任务后会自动记录。</div>
+          </section>
+          <section id="v2HistoryDetail" class="v2-card v2-table-card" hidden>
+            <header class="v2-card-header v2-card-header-row">
+              <h2 id="v2HistoryDetailTitle">任务详情</h2>
+              <div class="v2-inline-actions">
+                <button id="v2HistoryDetailExport" class="v2-button" type="button">导出结果</button>
+                <button id="v2HistoryDetailClose" class="v2-button" type="button">关闭</button>
+              </div>
+            </header>
+            <div id="v2HistoryDetailBody"></div>
+          </section>
+        </section>
+
+        <section class="v2-page" data-page="settings" hidden>
+          <div class="v2-section-head">
+            <div>
+              <h2>系统设置</h2>
+              <p id="v2SettingsSummary">设置保存在 NAS 本地数据目录</p>
+            </div>
+            <div class="v2-inline-actions">
+              <button id="v2SettingsSave" class="v2-button v2-button-primary" type="button">保存设置</button>
+              <button id="v2SettingsReload" class="v2-button" type="button">重新读取</button>
+            </div>
+          </div>
+          <div class="v2-settings">
+            <section class="v2-card">
+              <header class="v2-card-header"><h2>扫描默认参数</h2></header>
+              <div class="v2-form-grid">
+                <label>探测超时（毫秒）<input id="v2SetTimeout" class="v2-input" type="number" min="100" max="30000"></label>
+                <label>并发数<input id="v2SetConcurrency" class="v2-input" type="number" min="1" max="128"></label>
+                <label>默认网卡<select id="v2SetInterface" class="v2-select"><option value="">自动选择</option></select></label>
+                <label>在线判定有效期（分钟）<input id="v2SetStale" class="v2-input" type="number" min="1" max="10080"></label>
+                <label class="v2-check"><input id="v2SetAutoScan" type="checkbox"> 启用自动扫描</label>
+                <label>自动扫描间隔（分钟）<input id="v2SetAutoInterval" class="v2-input" type="number" min="1" max="1440"></label>
+              </div>
+              <p class="v2-card-copy">参数在保存后立即用于新的扫描任务。</p>
+            </section>
+            <section class="v2-card">
+              <header class="v2-card-header"><h2>CSV 导出</h2></header>
+              <div class="v2-form-grid">
+                <label>分隔符<select id="v2SetDelimiter" class="v2-select"><option value=",">逗号</option><option value=";">分号</option><option value="&#9;">制表符</option></select></label>
+                <label class="v2-check"><input id="v2SetCsvHeader" type="checkbox"> 包含表头</label>
+                <label class="v2-check"><input id="v2SetCsvBom" type="checkbox"> UTF-8 BOM（兼容 Excel）</label>
+              </div>
+              <p class="v2-card-copy">导出适用于设备总览、设备管理与扫描任务结果。</p>
+            </section>
+            <section class="v2-card">
+              <header class="v2-card-header"><h2>主题</h2></header>
+              <p class="v2-card-copy">此设置只保存在本应用内，不会写回 TOS 桌面。</p>
+              <div class="v2-segmented" role="group" aria-label="主题">
+                <button type="button" data-theme-choice="light">浅色</button>
+                <button type="button" data-theme-choice="dark">深色</button>
+                <button type="button" data-theme-choice="system">跟随系统</button>
+              </div>
+            </section>
+            <section class="v2-card">
+              <header class="v2-card-header"><h2>语言</h2></header>
+              <p class="v2-card-copy">语言切换后会重新加载页面。</p>
+              <div class="v2-segmented" role="group" aria-label="语言">
+                <button type="button" data-locale-choice="zh">中文</button>
+                <button type="button" data-locale-choice="en">English</button>
+              </div>
+            </section>
+            <section class="v2-card">
+              <header class="v2-card-header"><h2>数据存储</h2></header>
+              <dl class="v2-about">
+                <div><dt>数据库</dt><dd id="v2SetStoragePath">--</dd></div>
+                <div><dt>大小</dt><dd id="v2SetStorageSize">--</dd></div>
+                <div><dt>结构版本</dt><dd id="v2SetSchema">--</dd></div>
+                <div><dt>历史保留</dt><dd id="v2SetRetention">--</dd></div>
+              </dl>
+              <div class="v2-inline-actions">
+                <button id="v2SetPurge" class="v2-button" type="button">清理历史</button>
+              </div>
+              <p class="v2-card-copy">设备档案与扫描历史保存在 NAS 本地数据目录，卸载应用前请先导出需要保留的数据。</p>
+            </section>
+            <section class="v2-card">
+              <header class="v2-card-header"><h2>关于</h2></header>
+              <dl class="v2-about">
+                <div><dt>应用版本</dt><dd id="v2AboutVersion">--</dd></div>
+                <div><dt>服务版本</dt><dd id="v2AboutService">--</dd></div>
+                <div><dt>内置厂商前缀</dt><dd id="v2AboutVendors">--</dd></div>
+              </dl>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
   </div>
+
+  <aside id="v2Drawer" class="v2-drawer" hidden aria-label="设备详情">
+    <header class="v2-drawer-header">
+      <div class="v2-drawer-title">
+        <span id="v2DrawerName">设备详情</span>
+        <span id="v2DrawerStatus" class="v2-badge"></span>
+      </div>
+      <button id="v2DrawerClose" class="v2-icon-button" type="button" aria-label="关闭">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6 18 18"></path><path d="M18 6 6 18"></path></svg>
+      </button>
+    </header>
+    <div class="v2-drawer-body">
+      <div class="v2-drawer-edit">
+        <label>设备名称<input id="v2DrawerNameInput" class="v2-input" type="text" maxlength="80" autocomplete="off"></label>
+        <label>备注<textarea id="v2DrawerNoteInput" class="v2-textarea" maxlength="500" rows="3"></textarea></label>
+        <label class="v2-check"><input id="v2DrawerFavorite" type="checkbox"> 收藏该设备</label>
+        <div class="v2-inline-actions">
+          <button id="v2DrawerSave" class="v2-button v2-button-primary" type="button">保存</button>
+          <button id="v2DrawerCopyIp" class="v2-button" type="button">复制 IP</button>
+          <button id="v2DrawerCopyMac" class="v2-button" type="button">复制 MAC</button>
+        </div>
+        <p id="v2DrawerSaveState" class="v2-hint"></p>
+      </div>
+      <dl id="v2DrawerSummary" class="v2-about v2-detail-grid"></dl>
+      <section class="v2-drawer-section">
+        <h3>IP 历史</h3>
+        <div id="v2DrawerIpHistory"></div>
+      </section>
+      <section class="v2-drawer-section">
+        <h3>设备事件</h3>
+        <div id="v2DrawerEvents" class="v2-timeline"></div>
+      </section>
+    </div>
+    </aside>
 
   <div id="glassTooltip" class="glass-tooltip" role="tooltip" hidden>
     <span id="glassTooltipText"></span>
@@ -517,7 +1041,11 @@
 
   <div id="toastRegion" class="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
+  <script src="./i18n.js?v=__APP_VERSION__" defer></script>
   <script src="./csv.js?v=__APP_VERSION__" defer></script>
   <script src="./app.js?v=__APP_VERSION__" defer></script>
+  <script src="./v2-data.js?v=__APP_VERSION__" defer></script>
+  <script src="./v2-shell.js?v=__APP_VERSION__" defer></script>
+  <script src="./v2-pages.js?v=__APP_VERSION__" defer></script>
 </body>
 </html>

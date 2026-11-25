@@ -1,0 +1,896 @@
+/* Network Locator V2 — bilingual copy (zh source strings, en dictionary). */
+(function (root) {
+  "use strict";
+
+  var LOCALE_KEY = "networkLocator.locale.v1";
+
+  var EN = {
+    /* ---- app.js: saved devices ---- */
+    "请输入 AA-BB、AA:BB 或 AABB 格式的 MAC 后四位。": "Enter the last four MAC characters as AA-BB, AA:BB, or AABB.",
+    "浏览器未允许本地存储，本次保存不会保留。": "This browser blocked local storage, so this save will not be kept.",
+    "离线": "Offline",
+    "在线": "Online",
+    "近期": "Recent",
+    "未知": "Unknown",
+    "（上次）": " (last seen)",
+    "刚刚": "Just now",
+    "从未发现": "Never seen",
+    "已恢复上次探测到的 ": "Restored ",
+    " 台设备": " devices",
+    "已缓存设备 ": "Cached ",
+    " 台": " devices",
+    "未发现可扫描网段": "No scannable network found",
+    "请至少选择一个活动网段": "Select at least one active network",
+    "将扫描 ": "Will scan ",
+    " 个自定义范围": " custom range(s)",
+    "已选择 ": "Selected ",
+    " 个活动网段": " active networks",
+    " 等 ": " and ",
+    " 个后缀": " suffixes",
+    " 找到 ": " found ",
+    " 已完成 ": " completed ",
+    " 轮，未找到": " rounds, not found",
+    " 未完成查找": " — search unfinished",
+    "恢复持续搜索": "Resuming continuous search",
+    "服务恢复后将自动继续查找 ": "The search will automatically continue after the service recovers: ",
+    "第 ": "Round ",
+    " 轮": "",
+    "已完成 ": "Completed ",
+    " 轮轮询查找：": " polling rounds: ",
+    " 轮轮询查找，最终没有找到 MAC 后缀 ": " polling rounds; no device with MAC suffix ",
+    " 的设备。": " was found.",
+    "查找完成，MAC 后缀 ": "Search complete. MAC suffix ",
+    " 台设备。": " devices.",
+    "查找完成：": "Search complete: ",
+    "找到 ": "Found ",
+    "已查 ": "Checked ",
+    " 轮 · 未找到": " rounds · not found",
+    "查找中 · 第 ": "Searching · Round ",
+    " 轮 · 等待下一轮": " · waiting for next round",
+    "已停止 · 第 ": "Stopped · Round ",
+    " 轮未完成": " — round unfinished",
+    "已停止 · 未开始查找": "Stopped · not started",
+    "已停止 · 已查 ": "Stopped · checked ",
+
+    /* ---- app.js: API errors ---- */
+    "请求没有离开浏览器": "Request did not leave the browser",
+    "TOS 会话未生效": "TOS session is not active",
+    "平台代理没有转到本应用": "Platform proxy did not reach this app",
+    "应用服务返回了错误": "App service returned an error",
+    "请求未被接受": "Request was not accepted",
+    "请求超过 ": "Request timed out after ",
+    " 秒未响应": " seconds",
+    "平台返回未登录响应（HTTP ": "Platform returned a not-signed-in response (HTTP ",
+    " 且响应不是 JSON": ") and the response was not JSON",
+    "后端返回 ok:false": "Backend returned ok:false",
+    "回包的 app 字段是 ": "The response app field is ",
+    "所有候选代理路径都不可用": "All candidate proxy paths are unavailable",
+    "未知错误": "Unknown error",
+    "TOS 会话未生效，请从桌面重新打开应用。": "The TOS session is not active. Reopen the app from the desktop.",
+    "浏览器未能连接平台代理，请检查当前 TOS 页面和网络连接。": "The browser could not reach the platform proxy. Check the current TOS page and network connection.",
+    "平台代理没有返回本应用接口，请确认应用服务状态。": "The platform proxy did not return this app's API. Check the app service status.",
+    "应用后端返回错误，请稍后重试。": "The app backend returned an error. Try again later.",
+    "请求失败": "Request failed",
+
+    /* ---- app.js: inputs and controls ---- */
+    "没有可扫描的物理网段": "No scannable physical network",
+    "扫描网段 ": "Scan network ",
+    " · 网关 ": " · gateway ",
+    "无分隔符时最多输入 4 位；带 - 或 : 分隔符时最多输入 5 位。": "Without separators, enter up to 4 characters; with - or : separators, up to 5.",
+    "MAC 后四位只能包含 0-9、A-F，以及一个 - 或 : 分隔符。": "The last four MAC characters may contain only 0-9, A-F, and one - or : separator.",
+    "同一个 MAC 后缀不能重复输入。": "The same MAC suffix cannot be entered twice.",
+    "MAC 后四位": "Last 4 MAC chars",
+    "MAC 后四位 ": "Last 4 MAC chars ",
+    "已添加 ": "Added ",
+    " 个，达到上限": " — limit reached",
+    "最多同时搜索 ": "Search up to ",
+    " 个": " at once",
+    "扫描设备中": "Scanning devices",
+    "停止中": "Stopping",
+    "持续扫描中": "Continuous scan running",
+    "持续搜索中": "Continuous search running",
+    "开始扫描": "Start scan",
+    "刷新中…": "Refreshing…",
+    "停止持续搜索": "Stop continuous search",
+    "清除筛选": "Clear filter",
+    "重新识别网段": "Re-detect networks",
+    "刷新设备总表": "Refresh devices",
+    "准备中": "Preparing",
+    "正在扫描": "Scanning",
+    "未选择设备": "No device selected",
+    "本机 local": "local",
+    "筛选后 ": "Filtered ",
+    " / 共 ": " / ",
+    "共 ": "",
+    "按": "Sort by ",
+    "排序": "",
+    "可达": "Reachable",
+    "本机": "Local",
+    "延迟": "Delayed",
+    "陈旧": "Stale",
+    "探测中": "Probing",
+    "已复制 ": "Copied ",
+    "复制失败，请重试。": "Copy failed. Try again.",
+    "选择 ": "Select ",
+    " · 未知网段": " · unknown network",
+    "未知网段": "Unknown network",
+    "网段 ": "Network ",
+    "，网段 ": ", range ",
+    "在新标签页打开 ": "Open in a new tab: ",
+    "复制 MAC": "Copy MAC",
+    "复制 MAC ": "Copy MAC ",
+    "已复制": "Copied",
+    "复制 IP": "Copy IP",
+    "复制 IP ": "Copy IP ",
+    "匹配结果": "Matches",
+    "设备总表": "Devices",
+
+    /* ---- app.js: empty states ---- */
+    "没有符合筛选条件的设备": "No devices match the filter",
+    "请调整关键词，或清除筛选查看全部 ": "Adjust the keyword, or clear the filter to see all ",
+    "暂无设备记录": "No device records",
+    "当前网段中没有探测到设备，刷新后再试。": "No devices detected on the current networks. Refresh and try again.",
+    "轮询查找未找到": "Not found after polling",
+    "当前没有搜索到": "No match yet",
+    "正在持续查找 ": "Continuously searching for ",
+    "，找到设备后会自动显示。": "; matches appear automatically.",
+    "当前服务暂不可用；恢复后会自动继续搜索，找到设备后会显示在这里。": "The service is temporarily unavailable; the search resumes automatically and matches appear here.",
+    "本轮未发现 ": "No match this round for ",
+    "，将自动开始下一轮搜索。": "; the next round starts automatically.",
+    "网段探测和邻居表读取正在后台进行。": "Probing hosts and reading the neighbor table in the background.",
+    "扫描已停止": "Scan stopped",
+    "已完成的探测结果保留在当前页面。": "Completed probe results remain on this page.",
+    "扫描未完成": "Scan incomplete",
+    "请检查网段、服务状态或稍后重试。": "Check the networks, service status, or try again later.",
+    "未找到匹配设备": "No matching devices",
+    "当前网段中没有符合该 MAC 后缀的记录。": "No device on the current networks matches this MAC suffix.",
+    "等待扫描": "Waiting to scan",
+    "匹配到的设备会显示在这里。": "Matching devices appear here.",
+
+    /* ---- app.js: live scan status ---- */
+    "读取物理网卡与默认网关": "Reading physical interfaces and default gateway",
+    "正在识别当前物理局域网。": "Detecting the current physical LAN.",
+    "正在识别网段": "Detecting networks",
+    "正在刷新物理网段，完成后继续查找 ": "Refreshing physical networks; the search for ",
+    "读取 IPv4 地址、默认网关和安全的扫描范围。": "Reading IPv4 addresses, default gateway, and a safe scan range.",
+    "正在探测主机并读取邻居表": "Probing hosts and reading the neighbor table",
+    "正在持续匹配 ": "Continuously matching ",
+    "正在匹配 ": "Matching ",
+    "，已探测 ": "; probed ",
+    " 台主机。": " hosts.",
+    "持续搜索中 · ": "Continuous search · ",
+    "正在扫描 ": "Scanning ",
+    "准备扫描": "Ready to scan",
+    " · 已探测 ": " · probed ",
+    "扫描完成": "Scan complete",
+    "轮询查找结束": "Polling finished",
+    "查找完成": "Search complete",
+    "已找到匹配设备": "Matching device found",
+    " 条记录，下一轮搜索即将开始。": " records; the next round starts soon.",
+    "持续搜索已找到 ": "Continuous search found ",
+    "，下一轮会自动刷新（": "; the next round refreshes automatically (",
+    " 台设备，下一轮会自动刷新（": " devices; the next round refreshes automatically (",
+    "未发现 ": "No match for ",
+    "当前没有搜索到 ": "No match for ",
+    "，持续搜索仍在进行（": "; continuous search is still running (",
+    " 条匹配记录。": " matching records.",
+    " 匹配到 ": " matched ",
+    "扫描了 ": "Scanned ",
+    " 台主机，未发现": " hosts; no match for ",
+    "已扫描所选网段，未找到 ": "Scanned the selected networks; no match for ",
+    "上一轮任务已停止，将自动开始下一轮搜索。": "The previous task stopped; the next round starts automatically.",
+    "持续搜索正在自动恢复当前查询。": "Continuous search is restoring the current query.",
+    "已保留停止前找到的 ": "Kept ",
+    " 条记录。": " records found before stopping.",
+    "扫描已停止，停止前的结果仍可选择和复制。": "Scan stopped; results found before stopping can still be selected and copied.",
+    "等待 NAS 恢复": "Waiting for the NAS",
+    "持续搜索已保留；服务恢复后会自动继续。": "Continuous search is preserved and resumes automatically after the service recovers.",
+    "持续搜索等待服务恢复，找到设备后会自动显示。": "Continuous search is waiting for the service; matches appear automatically.",
+    "扫描失败": "Scan failed",
+    "无法读取当前物理网段。": "Could not read the current physical network.",
+    "扫描未完成。": "Scan incomplete.",
+    "等待继续搜索": "Waiting to continue",
+    "搜索任务已保留，将自动开始下一轮扫描。": "The search task is preserved and the next scan starts automatically.",
+    "持续搜索正在准备下一轮扫描。": "Continuous search is preparing the next scan.",
+    "没有可扫描网段": "No scannable network",
+    "请刷新物理网卡和默认网关。": "Refresh physical interfaces and the default gateway.",
+    "请选择网段": "Select a network",
+    "至少选择一个活动网段后即可开始扫描。": "Select at least one active network to start scanning.",
+    "准备就绪": "Ready",
+    "输入 MAC 后四位开始定位设备。": "Enter the last four MAC characters to locate a device.",
+    "扫描 ": "Scanned ",
+    "已探测 ": "Probed ",
+    "共探测 ": "Probed ",
+    " 台主机": " hosts",
+    "持续搜索运行中": "Continuous search running",
+    "等待网络扫描": "Waiting for a scan",
+    "扫描完成，找到 ": "Scan complete; found ",
+    "扫描完成，未找到匹配设备。": "Scan complete; no matching device found.",
+    "扫描已停止。": "Scan stopped.",
+    "扫描失败。": "Scan failed.",
+
+    /* ---- app.js: refresh / inventory ---- */
+    "正在恢复活动网段": "Restoring active networks",
+    "正在读取物理网卡": "Reading physical interfaces",
+    "没有找到带默认网关的物理网卡。": "No physical interface with a default gateway was found.",
+    "网段刷新失败 · 使用上次结果": "Network refresh failed · using last results",
+    "网段读取失败": "Network read failed",
+    "新增 ": "Added ",
+    " 个网段": " networks",
+    "移除 ": "Removed ",
+    " 个失效网段": " stale networks",
+    "网段已更新 · ": "Networks updated · ",
+    "网段未变化 · ": "Networks unchanged · ",
+    "服务已连接 · 使用上次网段": "Service connected · using last networks",
+    "网段校验失败，显示上次保存的网段；可手动刷新设备总表。": "Network verification failed; showing last saved networks. You can refresh devices manually.",
+    "当前没有可扫描的物理网段。": "No scannable physical network right now.",
+    "请至少选择一个活动网段后刷新设备总表。": "Select at least one active network before refreshing devices.",
+    "请至少选择一个活动网段。": "Select at least one active network.",
+    "正在主动探测当前网段内的设备。": "Actively probing devices on the current networks.",
+    "当前网段共探测到 ": "Detected ",
+    "当前网段中暂未探测到设备。": "No devices detected on the current networks yet.",
+    "已探测设备 ": "Detected ",
+    "设备总表探测失败，请检查网络或服务状态。": "Device scan failed. Check the network or service status.",
+    "正在启动扫描。": "Starting scan.",
+
+    /* ---- app.js: continuous search / recovery ---- */
+    "等待服务恢复": "Waiting for the service",
+    "正在确认活动网段并准备下一轮搜索。": "Confirming active networks before the next search round.",
+    "需要重新登录": "Sign-in required",
+    "持续搜索已保留。重新打开应用并恢复 TOS 会话后会自动继续。": "Continuous search is preserved. Reopen the app and restore the TOS session to continue.",
+    "持续搜索已保留；服务恢复后会自动继续查找 ": "Continuous search is preserved and will continue after the service recovers: ",
+    "等待可用网段": "Waiting for a usable network",
+    "当前没有可扫描的物理网段，将持续检查并在网段恢复后继续搜索。": "No scannable physical network right now. The app keeps checking and resumes when a network returns.",
+    "等待选择网段": "Waiting for network selection",
+    "持续搜索已保留；请至少勾选一个活动网段，选择后会自动继续。": "Continuous search is preserved. Select at least one active network to continue.",
+    "服务在线": "Service online",
+    "与 NAS 的连接暂时中断；服务恢复后会自动继续搜索，已有结果会保留。": "The connection to the NAS was interrupted; the search resumes automatically after the service recovers, and results are preserved.",
+    "状态读取失败": "Status read failed",
+    "当前没有可扫描的物理网段，将持续检查并在网段恢复后继续查找 ": "No scannable physical network right now. The app keeps checking and continues when a network returns: ",
+    "未选择网段": "No network selected",
+    "请至少勾选一个活动网段后再开始扫描。": "Select at least one active network before starting a scan.",
+    "尚未选择扫描范围。": "No scan range selected.",
+    "正在启动扫描": "Starting scan",
+    "准备读取当前物理网段。": "Reading the current physical networks.",
+    "正在继续持续搜索": "Continuing continuous search",
+    "准备重新读取网段并查找 ": "Preparing to reread networks and search for ",
+    "切换持续搜索": "Switching continuous search",
+    "正在停止其他扫描任务，随后会继续搜索 ": "Stopping the other scan task, then continuing the search for ",
+    "MAC 后缀格式不正确。": "Invalid MAC suffix format.",
+    "扫描启动时连接中断；服务恢复后会自动继续搜索，已有结果会保留。": "The connection was interrupted while starting the scan; the search resumes automatically after the service recovers, and results are preserved.",
+    "持续搜索已停止": "Continuous search stopped",
+    "持续搜索已停止，已有结果仍可选择和复制。": "Continuous search stopped; existing results can still be selected and copied.",
+    "持续搜索已停止。": "Continuous search stopped.",
+    "正在停止扫描": "Stopping scan",
+    "等待当前批次探测结束。": "Waiting for the current probe batch to finish.",
+    "无法确认后端状态，但不会自动重新开始搜索。": "Could not confirm the backend state, but the search will not restart automatically.",
+    "搜索已停止，已有结果仍可选择和复制。": "Search stopped; existing results can still be selected and copied.",
+    "请先选择一条匹配结果。": "Select a matching device first.",
+    "当前没有可导出的设备记录。": "No device records to export.",
+    "已导出 ": "Exported ",
+    " 条记录": " records",
+    " 个物理网段可用于扫描。": " physical networks available for scanning.",
+    "切换为浅色主题": "Switch to light theme",
+    "切换为深色主题": "Switch to dark theme",
+    "正在连接服务": "Connecting to service",
+    "服务 v": "Service v",
+    "服务不可用": "Service unavailable",
+    "服务未连接": "Service not connected",
+    "打开 ": "Open ",
+    "同一个 4 位后缀命中多台设备，请核对完整 MAC。": "The same 4-character suffix matched multiple devices. Check the full MAC address.",
+    "打开上次发现的 IP ": "Open the last seen IP ",
+    "未发现": "Not found",
+    "查看 ": "View ",
+    " 的详情": " details",
+    "未填写用途": "No note",
+    "编辑": "Edit",
+    "编辑 ": "Edit ",
+    "刷新 IP": "Refresh IP",
+    "展开我的设备": "Expand My Devices",
+    "收起我的设备": "Collapse My Devices",
+    "最多保存 ": "Save up to ",
+    " 个 MAC。": " MAC addresses.",
+    "已保存的 MAC": "Saved MACs",
+    "添加 MAC": "Add MAC",
+    "编辑 MAC": "Edit MAC",
+    "有未保存的修改，确定关闭吗？": "You have unsaved changes. Close anyway?",
+    "放弃修改": "Discard changes",
+    "请输入 MAC 后四位。": "Enter the last four MAC characters.",
+    "这个 MAC 已经保存过了。": "This MAC is already saved.",
+    "已更新": "Updated",
+    "已保存": "Saved",
+    "删除后不可恢复，确定删除这个 MAC 吗？": "This cannot be undone. Delete this MAC?",
+    "删除": "Delete",
+    "已删除": "Deleted",
+    "当前正在扫描，请稍后再试。": "A scan is running. Try again later.",
+    "这个 MAC 已在输入框中。": "This MAC is already in the input.",
+    "已填入 ": "Filled in ",
+    "确定": "OK",
+    "当前 IP 已刷新": "Current IP refreshed",
+    "已恢复上次网段": "Restored last networks",
+    "已恢复上次网段，正在后台快速校验。": "Restored last networks; verifying in the background.",
+    "正在停止旧任务，随后会继续搜索 ": "Stopping the old task, then continuing the search for ",
+    "服务恢复后会自动继续搜索，已有结果会保留。": "The search will resume automatically after the service recovers; existing results are preserved.",
+    "服务未连接 · 使用上次网段": "Service not connected · using last networks",
+    "服务未连接，当前显示上次保存的网段。": "Service not connected; showing the last saved networks.",
+
+    /* ---- index.html / shell ---- */
+    "网络定位": "Network Locator",
+    "主导航": "Main navigation",
+    "目标设备": "Target device",
+    "MAC 后缀定位": "MAC suffix locator",
+    "添加一个 MAC": "Add a MAC",
+    "在当前 NAS 所在的物理局域网中查找匹配设备。": "Find matching devices on the physical LAN of this NAS.",
+    "最多同时搜索 8 个": "Search up to 8 at once",
+    "停止": "Stop",
+    "正在读取网络环境。": "Reading the network environment.",
+    "扫描范围": "Scan range",
+    "全选": "Select all",
+    "服务 --": "Service --",
+    "我的设备": "My Devices",
+    "收藏常用设备，下次打开可直接看到当前 IP。": "Save frequently used devices and see their current IP when you return.",
+    "还没有收藏的设备，": "No saved devices yet, ",
+    "添加第一个": "add the first one",
+    "＋ 添加": "+ Add",
+    "正在刷新当前 IP…": "Refreshing current IP…",
+    "正在主动探测当前物理网段中的设备。": "Actively probing devices on the current physical networks.",
+    "查找目标": "Search targets",
+    "选择": "Select",
+    "网卡": "Interface",
+    "网段": "Network",
+    "IP 地址": "IP address",
+    "MAC 地址": "MAC address",
+    "匹配后缀": "Matched suffix",
+    "状态": "Status",
+    "操作": "Open",
+    "正在读取设备": "Reading devices",
+    "当前网段中探测到的设备会显示在这里。": "Devices detected on the current networks appear here.",
+    "用途说明": "Note",
+    "当前 IP": "Current IP",
+    "最后发现": "Last seen",
+    "用于搜索": "Use for search",
+    "支持 AA-BB / AA:BB / AABB，重复的 MAC 不能保存。": "Supports AA-BB, AA:BB, or AABB. Duplicate MAC addresses cannot be saved.",
+    "取消": "Cancel",
+    "保存": "Save",
+    "确认": "Confirm",
+    "切换明暗主题": "Toggle light/dark theme",
+    "切换语言": "Switch language",
+    "MAC 查询控制": "MAC search controls",
+    "清除搜索": "Clear search",
+    "清除搜索并恢复设备总表": "Clear search and return to the device overview",
+    "停止当前扫描或持续搜索": "Stop the current scan or continuous search",
+    "调整 MAC 后缀定位与活动网段的高度": "Adjust the height of MAC suffix locator and active networks",
+    "拖动调整上下区域，双击恢复默认高度": "Drag to resize, double-click to restore the default height",
+    "勾选全部活动网段": "Select all active networks",
+    "刷新网段": "Refresh networks",
+    "重新读取当前物理网段": "Re-read the current physical networks",
+    "调整 MAC 后缀定位与设备总表的宽度": "Adjust the width of MAC suffix locator and device overview",
+    "拖动调整左右区域，双击恢复默认宽度": "Drag to resize, double-click to restore the default width",
+    "我的设备与设备总表": "My Devices and device overview",
+    "刷新当前 IP": "Refresh current IP",
+    "收起或展开我的设备": "Collapse or expand My Devices",
+    "清除搜索并返回设备总表": "Clear search and return to the device overview",
+    "结果表格": "Result table",
+    "筛选 IP、MAC 或状态": "Filter by IP, MAC, or status",
+    "筛选当前设备表格": "Filter the current device table",
+    "清除表格筛选": "Clear the table filter",
+    "当前网段": "Current networks",
+    "设备详情": "Device details",
+    "例如：客厅电视、财务打印机": "For example: living room TV, finance printer",
+    "预览模式：docker0 已作为虚拟网卡跳过": "Preview mode: skipped the virtual interface docker0",
+    "设备总览": "Device overview",
+    "网络扫描": "Network discovery",
+    "设备管理": "Device inventory",
+    "MAC 定位": "MAC lookup",
+    "网络分析": "Network analysis",
+    "扫描历史": "Scan history",
+    "系统设置": "Settings",
+    "查看局域网设备、网段与最近发现情况。": "LAN devices, networks, and recent discoveries.",
+    "识别网段并按 MAC 后缀查找设备。": "Detect networks and locate devices by MAC suffix.",
+    "维护设备档案、名称、备注与收藏。": "Device profiles, names, notes, and favorites.",
+    "按完整 MAC、前缀或后缀查询并关联设备档案。": "Look up full MAC addresses, prefixes, or suffixes and link them to devices.",
+    "接口、网关、连通性与延迟统计。": "Interfaces, gateway, reachability, and latency.",
+    "接口": "Interface",
+    "查看历史扫描任务与结果变化。": "Historical scan tasks and result changes.",
+    "扫描参数、主题、语言与数据存储。": "Scan parameters, theme, language, and data storage.",
+    "主题": "Theme",
+    "语言": "Language",
+    "浅色": "Light",
+    "深色": "Dark",
+    "跟随系统": "System",
+    "中文": "中文",
+    "设备总数": "Total devices",
+    "在线设备": "Online devices",
+    "活动网段": "Active networks",
+    "收藏设备": "Saved devices",
+    "立即扫描": "Scan now",
+    "导出 CSV": "Export CSV",
+    "打开扫描页": "Open scan page",
+    "此页面将在后续阶段接入真实数据。": "This page will connect to real data in a later phase.",
+    "设备总览与设备管理将在第 3 阶段接入。": "Device overview and inventory will be connected in phase 3.",
+    "设备详情抽屉将在第 4 阶段接入。": "The device detail drawer will be connected in phase 4.",
+    "MAC 定位将在第 6 阶段接入。": "MAC lookup will be connected in phase 6.",
+    "网络分析与扫描历史将在第 7 阶段接入。": "Network analysis and scan history will be connected in phase 7.",
+    "扫描默认参数、超时、并发、网卡与自动扫描策略将在后续阶段接入。": "Default scan parameters, timeouts, concurrency, interfaces, and automation will be connected in a later phase.",
+    "数据存储": "Data storage",
+    "设备档案与扫描历史将保存在 NAS 本地数据目录。": "Device profiles and scan history will be stored in the NAS local data directory.",
+    "关于": "About",
+    "版本": "Version",
+    "返回设备总览": "Back to device overview",
+    "当前没有可展示的数据。": "No data to show yet.",
+    "尚未扫描": "Not scanned yet",
+    "个": "",
+    "阶段": "Phase",
+    "第 3 阶段": "Phase 3",
+    "第 4 阶段": "Phase 4",
+    "第 6 阶段": "Phase 6",
+    "第 7 阶段": "Phase 7",
+    "语言切换后会重新加载页面。": "The page reloads after changing the language.",
+    "此设置只保存在本应用内，不会写回 TOS 桌面。": "This setting is stored inside the app only and is not written back to the TOS desktop.",
+    "扫描参数与环境": "Scan parameters and environment",
+    "当前后端能力": "Current backend capabilities",
+    "最大主机数": "Max hosts",
+    "并发数": "Concurrency",
+    "Ping 超时": "Ping timeout",
+    "服务版本": "Service version",
+    "深度扫描设置将在第 8 阶段完整接入。": "Detailed scan settings will be connected fully in phase 8.",
+    "最近发现设备": "Recently discovered devices",
+    "当前接口与网段": "Current interfaces and networks",
+    "设备列表": "Device list",
+    "暂无设备": "No devices",
+    "请先在网络扫描页扫描设备。": "Scan devices on the Network discovery page first.",
+    "打开详情": "Open details",
+    "关闭": "Close",
+    "详情": "View",
+    "语言": "Language"
+  };
+
+  /* ---- v2 pages (phase 3+) ---- */
+  Object.assign(EN, {
+    "处理中…": "Working…",
+    "导出 ": "Export ",
+    "复制": "Copy",
+    "取消收藏": "Remove favorite",
+    "收藏": "Favorite",
+    "已取消收藏": "Removed from favorites",
+    "已收藏": "Added to favorites",
+    "操作失败": "Operation failed",
+    "未命名设备": "Unnamed device",
+    "随机 MAC": "Random MAC",
+    "未知厂商": "Unknown",
+    "设备总览加载失败": "Could not load the device overview",
+    "设备总览加载失败，请检查服务是否在线。": "Could not load the device overview. Check that the service is online.",
+    "加载失败": "Load failed",
+    "更新于 ": "Updated ",
+    "上次扫描 ": "Last scan ",
+    " · 无默认网关": " · no default gateway",
+    "导出失败": "Export failed",
+    "设备列表加载失败，请检查服务是否在线。": "Could not load devices. Check that the service is online.",
+    "设备列表加载失败": "Could not load devices",
+    "已选 ": "Selected ",
+    "在线 ": "Online ",
+    "离线 ": "Offline ",
+    "未知 ": "Unknown ",
+    "收藏 ": "Favorites ",
+    "没有匹配的设备。": "No matching devices.",
+    "已收藏 ": "Favorited ",
+    "批量收藏失败": "Bulk favorite failed",
+    "扫描中…": "Scanning…",
+    "开始扫描当前网段的在线设备，请稍候。": "Starting a scan of online devices on the current networks. Please wait.",
+    "扫描完成：发现 ": "Scan complete: found ",
+    " 台，新增 ": " devices, ",
+    " 台，IP 变化 ": " devices, IP changes: ",
+    "扫描失败，未生成扫描结果。": "Scan failed; no scan results were generated.",
+    "完整 MAC": "Full MAC",
+    "6 位前缀": "6-character prefix",
+    "后缀": "Suffix",
+    "包含片段": "Contains fragment",
+    "等待输入": "Waiting for input",
+    "至少输入 4 位十六进制字符。": "Enter at least 4 hexadecimal characters.",
+    "有效十六进制 ": "Valid hex ",
+    " 位": " characters",
+    "厂商前缀匹配": "Vendor prefix match",
+    "扫描结果": "Scan results",
+    "厂商": "Vendor",
+    "匹配到 ": "Matched ",
+    " 个历史 MAC：": " historical MACs:",
+    "打开设备详情": "Open device details",
+    "来自当前扫描结果，尚未写入设备档案。": "From the current scan; not yet written to the device profile.",
+    "没有找到匹配设备。": "No matching device found.",
+    "没有找到匹配设备。可先运行网络扫描，或改用更短的后缀。": "No matching device found. Run a network scan first, or use a shorter suffix.",
+    "输入 MAC 后开始查询。": "Enter a MAC to start searching.",
+    "请每行输入一个 MAC、前缀或后缀。": "Enter one MAC, prefix, or suffix per line.",
+    "请输入 MAC、前缀或后缀。": "Enter a MAC, prefix, or suffix.",
+    "查询中…": "Searching…",
+    "批量查询完成，共匹配 ": "Bulk search complete; matched ",
+    "没有找到匹配设备": "No matching device found",
+    "查询失败": "Search failed",
+    "尚未测试": "Not tested yet",
+    "不可达": "Unreachable",
+    "丢包 ": "Packet loss ",
+    "平均 ": "Average ",
+    "范围 ": "Range ",
+    "目标": "Target",
+    "测试时间 ": "Tested at ",
+    "请输入要测试的 IP 或主机名。": "Enter an IP or hostname to test.",
+    "测试中…": "Testing…",
+    "Ping 失败": "Ping failed",
+    "检测中…": "Checking…",
+    "网关检测失败": "Gateway check failed",
+    " 个接口": " interfaces",
+    " 个 DNS": " DNS servers",
+    "网关 ": "Gateway ",
+    "无": "None",
+    "设备 ": "Devices ",
+    "本机 MAC ": "Local MAC ",
+    "无默认网关": "No default gateway",
+    "没有可用的默认网关。": "No usable default gateway.",
+    "总数": "Total",
+    "网络分析加载失败": "Could not load network analysis",
+    "已完成": "Completed",
+    "已中断": "Interrupted",
+    "失败": "Failed",
+    "进行中": "In progress",
+    "后缀 ": "Suffix ",
+    " 个任务": " tasks",
+    "最近 ": "Latest ",
+    "扫描历史加载失败": "Could not load scan history",
+    "任务详情": "Task details",
+    "任务 ID": "Task ID",
+    "开始时间": "Started",
+    "完成时间": "Finished",
+    "探测主机": "Probed hosts",
+    "发现设备": "Discovered",
+    "新增设备": "New devices",
+    "离线设备": "Offline devices",
+    "IP 变化": "IP changes",
+    "错误": "Error",
+    "该任务没有保存扫描结果。": "This task has no saved scan results.",
+    "扫描任务不存在": "Scan task not found",
+    "任务详情加载失败": "Could not load task details",
+    "该任务没有可导出的扫描结果。": "This task has no scan results to export.",
+    "将清理超过历史保留天数的扫描记录，设备档案不会被删除。继续？": "This removes scan records older than the retention period. Device profiles are not deleted. Continue?",
+    "已清理 ": "Cleaned ",
+    " 条扫描记录": " scan records",
+    "清理历史失败": "Could not clean history",
+    "自动选择": "Auto-select",
+    "（当前配置）": " (current configuration)",
+    " 天": " days",
+    "设置已保存 · 超时 ": "Settings saved · timeout ",
+    "并发 ": "Concurrency ",
+    "设置加载失败": "Could not load settings",
+    " 必须在 ": " must be between ",
+    " 之间": "",
+    "保存中…": "Saving…",
+    "设置已保存": "Settings saved",
+    "设置保存失败": "Could not save settings",
+    "自动扫描完成：发现 ": "Automatic scan complete: found ",
+    "自动扫描失败：": "Automatic scan failed: ",
+    "首次发现": "First seen",
+    "最近发现": "Seen",
+    "发现次数": "Times seen",
+    "是": "Yes",
+    "否": "No",
+    "设备 ID": "Device ID",
+    "暂无 IP 历史。": "No IP history yet.",
+    "当前": "Current",
+    "历史": "History",
+    "暂无设备事件。": "No device events yet.",
+    "正在读取设备…": "Loading device…",
+    "设备不存在": "Device not found",
+    "设备档案读取于 ": "Device profile loaded at ",
+    "设备详情加载失败": "Could not load device details",
+    "正在保存…": "Saving…",
+    "已保存 ": "Saved ",
+    "设备信息已保存": "Device information saved",
+    "保存失败": "Save failed",
+    "应用数据层未就绪": "App data layer is not ready",
+    " 分钟前": " min ago",
+    " 小时前": " h ago",
+    " 天前": " d ago",
+    "缓存": "Cached",
+    "MAC 变化": "MAC change",
+    "重新上线": "Back online",
+    "变为离线": "Went offline",
+    "重命名": "Renamed",
+    "备注更新": "Note updated",
+    "收藏变更": "Favorite changed",
+    "设备扫描": "Device scan",
+    "自定义范围": "Custom range",
+    "复制失败，请手动选择文本。": "Copy failed. Select the text manually.",
+    "CSV 模块未加载": "CSV module is not loaded",
+    "设备名称": "Device name",
+    "备注": "Note",
+    "暂无数据": "No data",
+    "正在加载…": "Loading…",
+    "运行概览": "Overview",
+    "正在读取网络与设备状态": "Reading network and device status",
+    "刷新": "Refresh",
+    "已建立档案": "Profiled devices",
+    "最近扫描确认": "Confirmed by last scan",
+    "离线 / 未知": "Offline / unknown",
+    "需要复查": "Needs review",
+    "本机可扫描": "Scannable local networks",
+    "重点关注": "Watch list",
+    "今日扫描": "Scans today",
+    "已完成任务": "Completed tasks",
+    "全部设备": "All devices",
+    "设备档案按最近发现时间排序。": "Device profiles sorted by last seen.",
+    "全部状态": "All statuses",
+    "设备": "Device",
+    "还没有设备档案，先运行一次扫描。": "No device profiles yet. Run a scan first.",
+    "正在加载设备…": "Loading devices…",
+    "暂停": "Pause",
+    "可选": "Optional",
+    "添加": "Add",
+    "未选择活动网段时，将只扫描这些自定义范围。": "When no active network is selected, only these custom ranges are scanned.",
+    "设备档案": "Device profiles",
+    "扫描设备": "Scan devices",
+    "导出全部": "Export all",
+    "全部": "All",
+    "按名称": "By name",
+    "按 IP": "By IP",
+    "按 MAC": "By MAC",
+    "按厂商": "By vendor",
+    "按状态": "By status",
+    "按最近发现": "By last seen",
+    "按首次发现": "By first seen",
+    "按网段": "By network",
+    "降序": "Descending",
+    "升序": "Ascending",
+    "已选 0 台": "Selected 0 devices",
+    "收藏所选": "Favorite selected",
+    "导出所选": "Export selected",
+    "取消选择": "Clear selection",
+    "查询 MAC": "Look up MAC",
+    "支持完整 MAC、OUI 前缀（6 位）或后缀（4 位），输入格式自动识别。": "Supports a full MAC, a 6-character OUI prefix, or a 4-character suffix; the format is detected automatically.",
+    "MAC 地址 / 前缀 / 后缀": "MAC address / prefix / suffix",
+    "查询方式": "Query type",
+    "自动识别": "Automatic",
+    "前缀 / 厂商": "Prefix / vendor",
+    "批量查询（每行一个）": "Bulk lookup (one per line)",
+    "查询": "Search",
+    "清空": "Clear",
+    "查询说明": "Query notes",
+    "精确匹配设备地址记录": "Exact match on device address records",
+    "识别 OUI 厂商并检索": "Resolve the OUI vendor and search",
+    "4 位后缀": "4-character suffix",
+    "兼容原有的后四位定位": "Compatible with the existing last-four locator",
+    "数据来源": "Data source",
+    "设备档案 + 当前扫描结果": "Device profiles + current scan results",
+    "厂商库覆盖常见 LAN 设备；未收录前缀会明确显示“未知厂商”，不会猜测。": "The vendor database covers common LAN devices; unknown prefixes are shown as “Unknown vendor” rather than guessed.",
+    "查询结果": "Query results",
+    "正在读取接口与网关": "Reading interfaces and gateway",
+    "检测网关": "Check gateway",
+    "接口信息": "Interfaces",
+    "未发现带默认网关的物理接口。": "No physical interface with a default gateway was found.",
+    "网关与 DNS": "Gateway and DNS",
+    "DNS 服务器": "DNS servers",
+    "未读取到 DNS 配置。": "No DNS configuration was read.",
+    "网段设备分布": "Devices per network",
+    "暂无设备统计。": "No device statistics.",
+    "Ping 连通性": "Ping reachability",
+    "4 次": "4 probes",
+    "2 次": "2 probes",
+    "6 次": "6 probes",
+    "10 次": "10 probes",
+    "开始 Ping": "Start ping",
+    "厂商分布": "Vendors",
+    "扫描任务": "Scan tasks",
+    "正在读取扫描历史": "Reading scan history",
+    "清理旧记录": "Clean old records",
+    "类型": "Type",
+    "发现": "Found",
+    "新增": "New",
+    "耗时": "Duration",
+    "暂无扫描历史，完成任务后会自动记录。": "No scan history yet; completed tasks are recorded automatically.",
+    "导出结果": "Export results",
+    "设置保存在 NAS 本地数据目录": "Settings are stored in the NAS local data directory",
+    "保存设置": "Save settings",
+    "重新读取": "Reload",
+    "扫描默认参数": "Scan defaults",
+    "探测超时（毫秒）": "Probe timeout (ms)",
+    "默认网卡": "Default interface",
+    "在线判定有效期（分钟）": "Online validity (minutes)",
+    "启用自动扫描": "Enable automatic scans",
+    "自动扫描间隔（分钟）": "Automatic scan interval (minutes)",
+    "参数在保存后立即用于新的扫描任务。": "Parameters apply to new scan tasks immediately after saving.",
+    "CSV 导出": "CSV export",
+    "分隔符": "Delimiter",
+    "逗号": "Comma",
+    "分号": "Semicolon",
+    "制表符": "Tab",
+    "包含表头": "Include header",
+    "UTF-8 BOM（兼容 Excel）": "UTF-8 BOM (Excel compatible)",
+    "导出适用于设备总览、设备管理与扫描任务结果。": "Applies to device overview, device inventory, and scan task results.",
+    "数据库": "Database",
+    "大小": "Size",
+    "结构版本": "Schema version",
+    "历史保留": "History retention",
+    "清理历史": "Clean history",
+    "设备档案与扫描历史保存在 NAS 本地数据目录，卸载应用前请先导出需要保留的数据。": "Device profiles and scan history are stored in the NAS local data directory. Export any data you need before uninstalling.",
+    "应用版本": "App version",
+    "内置厂商前缀": "Built-in vendor prefixes",
+    "收藏该设备": "Favorite this device",
+    "IP 历史": "IP history",
+    "设备事件": "Device events",
+    "搜索名称、IP、MAC、厂商": "Search name, IP, MAC, vendor",
+    "暂停或继续当前扫描": "Pause or resume the current scan",
+    "192.168.1.0/24 或 10.0.0.10-10.0.0.20": "192.168.1.0/24 or 10.0.0.10-10.0.0.20",
+    "设备筛选": "Device filters",
+    "搜索名称、IP、MAC、厂商、网段": "Search name, IP, MAC, vendor, network",
+    "全选当前设备": "Select all current devices",
+    "192.168.1.1 或 hostname": "192.168.1.1 or hostname"
+  });
+
+  Object.assign(EN, {
+    "预览模式：设备、统计与扫描历史均为界面示例数据。": "Preview mode: devices, statistics, and scan history are sample UI data.",
+    "预览模式：接口、DNS 与设备分布均为界面示例数据。": "Preview mode: interfaces, DNS, and device distribution are sample UI data."
+  });
+
+  Object.assign(EN, {"；": "; "});
+
+  var MESSAGE_RULES = [
+    [/^已跳过虚拟网卡 (.+)$/, "Skipped virtual interface $1"],
+    [/^(.+) 没有可用的 IPv4 地址$/, "$1 has no usable IPv4 address"],
+    [/^(.+) 的 (.+) 包含 (\\d+) 台主机，超过安全上限 (\\d+)，已跳过$/, "$1 on $2 has $3 hosts, above the safety limit of $4; skipped"],
+    [/^未找到同时具有 IPv4 地址和默认网关的物理网卡$/, "No physical interface with both an IPv4 address and a default gateway was found"],
+    [/^所选网段当前不可用：(.*)$/, "Selected networks are unavailable: $1"],
+    [/^所选网段当前不可用，请刷新网段后重试$/, "The selected networks are unavailable. Refresh networks and try again."],
+    [/^(.+) 邻居表读取失败：(.*)$/, "Failed to read the neighbor table for $1: $2"],
+    [/^(.+) 探测失败：(.*)$/, "Probe failed for $1: $2"],
+    [/^network_ids 必须是数组$/, "network_ids must be an array"],
+    [/^network_ids 只能包含字符串$/, "network_ids may only contain strings"],
+    [/^network_ids 不能包含空值$/, "network_ids must not contain empty values"],
+    [/^网段标识过长$/, "Network identifier is too long"],
+    [/^至少选择一个网段$/, "Select at least one network"],
+    [/^最多选择 (\\d+) 个网段$/, "Select at most $1 networks"],
+    [/^网段选择格式不正确$/, "Invalid network selection format"],
+    [/^无效的 MAC 后缀$/, "Invalid MAC suffix"],
+    [/^设备清单扫描已在进行中$/, "A device inventory scan is already running"]
+  ];
+
+  var locale = detectLocale();
+
+  function readStoredLocale() {
+    try {
+      var value = root.localStorage && root.localStorage.getItem(LOCALE_KEY);
+      return value === "zh" || value === "en" ? value : "";
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function systemLocale() {
+    var language = "";
+    try {
+      language = String((root.navigator && (root.navigator.language || root.navigator.userLanguage)) || "");
+    } catch (error) {
+      language = "";
+    }
+    if (!language) {
+      try {
+        var parentLang = root.parent && root.parent.document &&
+          root.parent.document.documentElement.getAttribute("lang");
+        if (parentLang) {
+          language = String(parentLang);
+        }
+      } catch (error) {
+        language = "";
+      }
+    }
+    if (!language) {
+      return "zh";
+    }
+    return language.toLowerCase().indexOf("zh") === 0 ? "zh" : "en";
+  }
+
+  function detectLocale() {
+    return readStoredLocale() || systemLocale();
+  }
+
+  function hasOwn(object, key) {
+    return Object.prototype.hasOwnProperty.call(object, key);
+  }
+
+  function translateMessage(text) {
+    var value = String(text === undefined || text === null ? "" : text);
+    for (var index = 0; index < MESSAGE_RULES.length; index += 1) {
+      var rule = MESSAGE_RULES[index];
+      if (rule[0].test(value)) {
+        return value.replace(rule[0], rule[1]);
+      }
+    }
+    return value;
+  }
+
+  function t(key) {
+    if (locale !== "en") {
+      return key;
+    }
+    if (hasOwn(EN, key)) {
+      return EN[key];
+    }
+    return translateMessage(key);
+  }
+
+  function localeTag() {
+    return locale === "zh" ? "zh-CN" : "en-US";
+  }
+
+  function setLocale(value) {
+    var next = value === "en" ? "en" : "zh";
+    try {
+      root.localStorage.setItem(LOCALE_KEY, next);
+    } catch (error) {
+      return false;
+    }
+    locale = next;
+    return true;
+  }
+
+  function applyStatic(scope) {
+    var container = scope || (root.document && root.document.body);
+    if (!container || locale !== "en") {
+      return;
+    }
+    var documentRef = root.document;
+    try {
+      documentRef.documentElement.setAttribute("lang", "en");
+      if (documentRef.title) {
+        documentRef.title = t(documentRef.title);
+      }
+    } catch (error) {
+      return;
+    }
+    var attributes = ["placeholder", "title", "aria-label", "data-tooltip", "alt"];
+    var walker = documentRef.createTreeWalker
+      ? documentRef.createTreeWalker(container, 4 /* SHOW_TEXT */, null)
+      : null;
+    if (walker) {
+      var node = walker.nextNode();
+      while (node) {
+        var parent = node.parentNode;
+        var tag = parent && parent.nodeName ? parent.nodeName.toLowerCase() : "";
+        if (tag !== "script" && tag !== "style") {
+          var raw = node.nodeValue || "";
+          var trimmed = raw.trim();
+          if (trimmed && hasOwn(EN, trimmed)) {
+            var leading = raw.slice(0, raw.indexOf(trimmed));
+            var trailing = raw.slice(raw.indexOf(trimmed) + trimmed.length);
+            node.nodeValue = leading + EN[trimmed] + trailing;
+          }
+        }
+        node = walker.nextNode();
+      }
+    }
+    var elements = container.querySelectorAll ? container.querySelectorAll("*") : [];
+    for (var index = 0; index < elements.length; index += 1) {
+      var element = elements[index];
+      for (var a = 0; a < attributes.length; a += 1) {
+        var name = attributes[a];
+        if (!element.hasAttribute(name)) {
+          continue;
+        }
+        var value = element.getAttribute(name);
+        if (hasOwn(EN, value)) {
+          element.setAttribute(name, EN[value]);
+        }
+      }
+    }
+  }
+
+  root.NetworkLocatorI18n = {
+    locale: function () { return locale; },
+    localeTag: localeTag,
+    systemLocale: systemLocale,
+    setLocale: setLocale,
+    t: t,
+    translateMessage: translateMessage,
+    applyStatic: applyStatic
+  };
+
+  if (root.document && root.document.documentElement) {
+    root.document.documentElement.setAttribute("lang", locale === "zh" ? "zh-CN" : "en");
+  }
+}(typeof window !== "undefined" ? window : globalThis));

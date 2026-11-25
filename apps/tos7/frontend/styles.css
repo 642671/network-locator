@@ -1,8 +1,8 @@
 :root {
   color-scheme: light;
   --titlebar-height: 41px;
-  --sidebar-width: 304px;
-  --scan-pane-height: 300px;
+  --sidebar-width: 280px;
+  --scan-pane-height: 340px;
   --panel-resizer-size: 10px;
   --page-bg: #dcebed;
   --glass: rgba(255, 255, 255, 0.3);

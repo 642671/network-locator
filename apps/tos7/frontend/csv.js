@@ -10,6 +10,14 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
+  function tr(value) {
+    var i18n = typeof globalThis !== "undefined" ? globalThis.NetworkLocatorI18n : null;
+    if (i18n && typeof i18n.t === "function") {
+      return i18n.t(String(value));
+    }
+    return value;
+  }
+
   var DEFAULT_COLUMNS = [
     { label: "网卡", value: "interface" },
     { label: "扫描范围", value: "scan_range" },
@@ -18,7 +26,7 @@
     {
       label: "状态",
       value: function (item) {
-        return item.state === "LOCAL" ? "本机" : item.state;
+        return item.state === "LOCAL" ? tr("本机") : item.state;
       }
     }
   ];
@@ -40,16 +48,22 @@
     var rows = Array.isArray(items) ? items : [];
     var specs = Array.isArray(columns) && columns.length ? columns : DEFAULT_COLUMNS;
     var settings = options || {};
-    var lines = [specs.map(function (column) {
-      return escapeCell(column.label);
-    }).join(",")];
+    var delimiter = settings.delimiter === ";" || settings.delimiter === "\t"
+      ? settings.delimiter
+      : ",";
+    var lines = [];
+    if (settings.includeHeader !== false) {
+      lines.push(specs.map(function (column) {
+        return escapeCell(tr(column.label));
+      }).join(delimiter));
+    }
     rows.forEach(function (item) {
       lines.push(specs.map(function (column) {
         var value = typeof column.value === "function"
           ? column.value(item)
           : item[column.value];
         return escapeCell(value);
-      }).join(","));
+      }).join(delimiter));
     });
     var body = lines.join("\r\n");
     return settings.bom === false ? body : "\ufeff" + body;

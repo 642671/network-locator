@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import inspect
 import ipaddress
 import json
 import math
@@ -432,7 +433,7 @@ def parse_neighbor_items(
         seen.add(key)
         records.append(
             NeighborRecord(
-                interface=interface,
+                interface=str(item.get("dev") or interface),
                 ip=str(address),
                 mac=mac,
                 state=state,
@@ -448,9 +449,10 @@ def read_neighbors(
     ip_command: str | None = None,
 ) -> list[NeighborRecord]:
     command = resolve_ip_command(ip_command)
-    output = runner(
-        [command, "-j", "-4", "neigh", "show", "dev", interface],
-    )
+    arguments = [command, "-j", "-4", "neigh", "show"]
+    if interface:
+        arguments.extend(["dev", interface])
+    output = runner(arguments)
     return parse_neighbor_items(_json_items(output, "ip neigh"), interface)
 
 
@@ -475,6 +477,8 @@ def prime_neighbor_cache(
 ) -> None:
     """Send empty UDP datagrams so the kernel resolves local ARP entries."""
 
+    if not str(source_ip or "").strip():
+        return
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         sock.bind((source_ip, 0))
@@ -501,10 +505,10 @@ def _ping_host(
         "1",
         "-W",
         str(wait_seconds),
-        "-I",
-        interface,
-        str(address),
     ]
+    if interface:
+        command.extend(["-I", interface])
+    command.append(str(address))
     try:
         result = subprocess.run(
             command,
@@ -526,6 +530,7 @@ def scan_hosts(
     timeout_ms: int | None = None,
     concurrency: int | None = None,
     ping_command: str | None = None,
+    pause_event: threading.Event | None = None,
     primer: Callable[[str, Iterable[ipaddress.IPv4Address]], None] = prime_neighbor_cache,
 ) -> bool:
     """Probe every host in a bounded network. Return whether ping was available."""
@@ -551,6 +556,10 @@ def scan_hosts(
     for start in range(0, len(hosts), batch_size):
         if cancel_event.is_set():
             raise ScanCancelled("scan stopped")
+        if pause_event is not None:
+            while pause_event.is_set():
+                if cancel_event.wait(0.2):
+                    raise ScanCancelled("scan stopped")
         batch = hosts[start : start + batch_size]
         try:
             primer(target.local_source, batch)
@@ -807,6 +816,201 @@ def match_local_target_multi(
     ]
 
 
+PING_LOSS_PATTERN = re.compile(r"([0-9]+(?:\.[0-9]+)?)% packet loss")
+PING_RTT_PATTERN = re.compile(
+    r"rtt min/avg/max/mdev = ([0-9.]+)/([0-9.]+)/([0-9.]+)/([0-9.]+) ms"
+)
+PING_HOST_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
+
+
+def expand_custom_range(text: str) -> list[str]:
+    """Expand one CIDR or start-end range into bounded IPv4 CIDRs."""
+
+    limit = max_configured_hosts()
+    raw = str(text or "").strip()
+    if not raw:
+        raise ValueError("自定义范围不能为空")
+    networks: list[ipaddress.IPv4Network] = []
+    if "-" in raw and ":" not in raw:
+        start_text, end_text = [part.strip() for part in raw.split("-", 1)]
+        try:
+            start = ipaddress.IPv4Address(start_text)
+            end = ipaddress.IPv4Address(end_text)
+        except ValueError as exc:
+            raise ValueError(f"自定义范围格式不正确：{raw}") from exc
+        if int(end) < int(start):
+            raise ValueError("自定义范围的结束地址不能小于开始地址")
+        networks = list(ipaddress.summarize_address_range(start, end))
+    else:
+        try:
+            network = ipaddress.ip_network(raw, strict=False)
+        except ValueError as exc:
+            raise ValueError(f"自定义范围格式不正确：{raw}") from exc
+        if not isinstance(network, ipaddress.IPv4Network):
+            raise ValueError("仅支持 IPv4 自定义范围")
+        networks = [network]
+    result: list[str] = []
+    for network in networks:
+        if network_host_count(network) > limit:
+            raise ValueError(f"{network} 包含的主机数超过上限 {limit}")
+        result.append(str(network))
+    return result
+
+
+def normalize_custom_ranges(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, (list, tuple)):
+        values = list(value)
+    else:
+        raise ValueError("custom_ranges 必须是数组")
+    result: list[str] = []
+    for item in values:
+        if not isinstance(item, str):
+            raise ValueError("custom_ranges 只能包含字符串")
+        if not item.strip():
+            continue
+        for network in expand_custom_range(item):
+            if network not in result:
+                result.append(network)
+    if len(result) > MAX_NETWORK_SELECTION:
+        raise ValueError(f"最多选择 {MAX_NETWORK_SELECTION} 个范围")
+    return result
+
+
+def build_custom_targets(
+    custom_ranges: Sequence[str],
+    discovered: Sequence[NetworkTarget],
+) -> list[NetworkTarget]:
+    """Turn custom CIDRs into scan targets, borrowing a routed interface."""
+
+    targets: list[NetworkTarget] = []
+    for text in custom_ranges:
+        network = ipaddress.ip_network(text, strict=False)
+        parent: NetworkTarget | None = None
+        for candidate in discovered:
+            try:
+                candidate_network = parse_ipv4_network(
+                    candidate.local_ip, candidate.prefix_length
+                )
+            except CommandError:
+                continue
+            if network.subnet_of(candidate_network) or candidate_network.subnet_of(network):
+                parent = candidate
+                break
+        targets.append(
+            NetworkTarget(
+                interface=parent.interface if parent else "",
+                alias=parent.alias if parent else "custom",
+                local_ip=str(network.network_address),
+                prefix_length=network.prefixlen,
+                gateway=parent.gateway if parent else "",
+                network=str(network.network_address),
+                broadcast=str(network.broadcast_address),
+                scan_range=str(network),
+                host_count=network_host_count(network),
+                local_source=parent.local_source if parent else "",
+                local_mac=parent.local_mac if parent else "",
+            )
+        )
+    return targets
+
+
+def merge_custom_targets(
+    discovered: Sequence[NetworkTarget],
+    custom_ranges: Sequence[str],
+) -> list[NetworkTarget]:
+    merged = list(discovered)
+    seen = {(target.interface, target.scan_range) for target in merged}
+    for target in build_custom_targets(custom_ranges, discovered):
+        key = (target.interface, target.scan_range)
+        if key not in seen:
+            merged.append(target)
+            seen.add(key)
+    return merged
+
+
+def ping_statistics(
+    host: str,
+    *,
+    count: int = 4,
+    timeout_ms: int = 1000,
+    ping_command: str | None = None,
+) -> dict:
+    """Run a real ICMP ping and return latency and packet loss statistics."""
+
+    text = str(host or "").strip()
+    if not text or PING_HOST_PATTERN.fullmatch(text) is None:
+        raise ValueError("请输入有效的 IPv4 地址或主机名")
+    ping_path = resolve_ping_command() if ping_command is None else ping_command
+    if not ping_path:
+        raise CommandError("系统没有可用的 ping 命令")
+    safe_count = max(1, min(20, int(count)))
+    wait_seconds = max(1, int(math.ceil(int(timeout_ms) / 1000)))
+    command = [
+        ping_path,
+        "-n",
+        "-c",
+        str(safe_count),
+        "-W",
+        str(wait_seconds),
+        text,
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=safe_count * (wait_seconds + 0.6) + 4,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise CommandError(f"ping 执行失败：{exc}") from exc
+    output = (result.stdout or "") + "\n" + (result.stderr or "")
+    loss_match = PING_LOSS_PATTERN.search(output)
+    rtt_match = PING_RTT_PATTERN.search(output)
+    loss = float(loss_match.group(1)) if loss_match else (0.0 if result.returncode == 0 else 100.0)
+    received = int(round(safe_count * (100.0 - loss) / 100.0))
+    stats = {
+        "host": text,
+        "transmitted": safe_count,
+        "received": max(0, min(safe_count, received)),
+        "loss_percent": round(loss, 1),
+        "reachable": result.returncode == 0 and loss < 100.0,
+        "min_ms": None,
+        "avg_ms": None,
+        "max_ms": None,
+        "mdev_ms": None,
+    }
+    if rtt_match:
+        stats.update(
+            {
+                "min_ms": float(rtt_match.group(1)),
+                "avg_ms": float(rtt_match.group(2)),
+                "max_ms": float(rtt_match.group(3)),
+                "mdev_ms": float(rtt_match.group(4)),
+            }
+        )
+    return stats
+
+
+def read_dns_servers(path: str = "/etc/resolv.conf") -> list[str]:
+    servers: list[str] = []
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                parts = line.split()
+                if len(parts) >= 2 and parts[0] == "nameserver" and parts[1] not in servers:
+                    servers.append(parts[1])
+    except OSError:
+        pass
+    return servers
+
+
 class ScanManager:
     """Run one scan at a time and expose polling-friendly state."""
 
@@ -816,14 +1020,18 @@ class ScanManager:
         discover: Callable[..., tuple[list[NetworkTarget], list[str]]] = discover_networks,
         neighbors: Callable[[str], list[NeighborRecord]] = read_neighbors,
         sweep: Callable[..., bool] = scan_hosts,
+        on_finish: Callable[[dict], None] | None = None,
     ) -> None:
         self._discover = discover
         self._neighbors = neighbors
         self._sweep = sweep
+        self._on_finish = on_finish
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._cancel = threading.Event()
+        self._pause = threading.Event()
         self._requested_network_ids: list[str] | None = None
+        self._custom_ranges: list[str] = []
         self._state = self._idle_state()
 
     @staticmethod
@@ -832,10 +1040,13 @@ class ScanManager:
             "status": "idle",
             "running": False,
             "stopping": False,
+            "paused": False,
             "job_id": "",
             "suffix": "",
             "suffixes": [],
             "selected_network_ids": [],
+            "custom_ranges": [],
+            "custom_only": False,
             "started_at": None,
             "finished_at": None,
             "networks": [],
@@ -856,6 +1067,9 @@ class ScanManager:
             snapshot["selected_network_ids"] = list(
                 self._state["selected_network_ids"]
             )
+            snapshot["custom_ranges"] = list(self._state.get("custom_ranges") or [])
+            snapshot["custom_only"] = bool(self._state.get("custom_only"))
+            snapshot["paused"] = bool(self._state.get("paused"))
             snapshot["networks"] = [dict(item) for item in self._state["networks"]]
             snapshot["warnings"] = list(self._state["warnings"])
             snapshot["results"] = [dict(item) for item in self._state["results"]]
@@ -865,9 +1079,12 @@ class ScanManager:
         self,
         suffixes: Sequence[str] | str,
         network_ids: Sequence[str] | None = None,
+        custom_ranges: Sequence[str] | None = None,
+        custom_only: bool = False,
     ) -> bool:
         normalized = normalize_mac_suffixes(suffixes)
         selected_network_ids = normalize_network_ids(network_ids)
+        normalized_ranges = normalize_custom_ranges(custom_ranges)
         with self._lock:
             if self._state["running"]:
                 return False
@@ -876,7 +1093,10 @@ class ScanManager:
                 if selected_network_ids is not None
                 else None
             )
+            self._custom_ranges = list(normalized_ranges)
+            self._custom_only = bool(custom_only and normalized_ranges)
             self._cancel = threading.Event()
+            self._pause.clear()
             self._state = self._idle_state()
             self._state.update(
                 {
@@ -886,6 +1106,8 @@ class ScanManager:
                     "suffix": normalized[0],
                     "suffixes": normalized,
                     "selected_network_ids": selected_network_ids or [],
+                    "custom_ranges": normalized_ranges,
+                    "custom_only": self._custom_only,
                     "started_at": datetime.now().isoformat(timespec="seconds"),
                 }
             )
@@ -896,6 +1118,8 @@ class ScanManager:
                     normalized,
                     self._cancel,
                     selected_network_ids,
+                    normalized_ranges,
+                    self._custom_only,
                 ),
                 name="lan-mac-scan",
                 daemon=True,
@@ -907,12 +1131,19 @@ class ScanManager:
         self,
         suffixes: Sequence[str] | str,
         network_ids: Sequence[str] | None = None,
+        custom_ranges: Sequence[str] | None = None,
+        custom_only: bool = False,
     ) -> bool:
         normalized = normalize_mac_suffixes(suffixes)
         requested = normalize_network_ids(network_ids)
+        requested_ranges = normalize_custom_ranges(custom_ranges)
         with self._lock:
             active_suffixes = self._state["suffixes"] or [self._state["suffix"]]
             if set(active_suffixes) != set(normalized):
+                return False
+            if set(self._custom_ranges) != set(requested_ranges):
+                return False
+            if bool(custom_only and requested_ranges) != bool(self._custom_only):
                 return False
             active = self._requested_network_ids
             if active is None or requested is None:
@@ -924,7 +1155,27 @@ class ScanManager:
             if not self._state["running"]:
                 return False
             self._state["stopping"] = True
+            self._state["paused"] = False
+            self._pause.clear()
             self._cancel.set()
+            return True
+
+    def pause(self) -> bool:
+        with self._lock:
+            if not self._state["running"] or self._state["stopping"]:
+                return False
+            self._pause.set()
+            self._state["paused"] = True
+            self._state["status"] = "paused"
+            return True
+
+    def resume(self) -> bool:
+        with self._lock:
+            if not self._state["running"] or not self._state["paused"]:
+                return False
+            self._pause.clear()
+            self._state["paused"] = False
+            self._state["status"] = "scanning"
             return True
 
     def wait(self, timeout: float | None = None) -> None:
@@ -949,10 +1200,17 @@ class ScanManager:
         suffixes: list[str],
         cancel_event: threading.Event,
         selected_network_ids: list[str] | None,
+        custom_ranges: list[str] | None = None,
+        custom_only: bool = False,
     ) -> None:
         try:
             targets, warnings = self._discover()
-            targets, missing = select_network_targets(targets, selected_network_ids)
+            if custom_only and custom_ranges:
+                targets = build_custom_targets(custom_ranges, targets)
+                missing: list[str] = []
+            else:
+                targets, missing = select_network_targets(targets, selected_network_ids)
+                targets = merge_custom_targets(targets, custom_ranges or [])
             if missing:
                 warnings = warnings + ["所选网段当前不可用：" + "、".join(missing)]
             if cancel_event.is_set():
@@ -1001,14 +1259,30 @@ class ScanManager:
                         progress_percent=percent,
                     )
 
-                self._sweep(
-                    target,
-                    cancel_event,
-                    on_progress,
-                )
+                sweep_parameters = inspect.signature(self._sweep).parameters
+                if "pause_event" in sweep_parameters:
+                    self._sweep(
+                        target,
+                        cancel_event,
+                        on_progress,
+                        pause_event=self._pause,
+                    )
+                else:
+                    self._sweep(target, cancel_event, on_progress)
                 for member in group:
                     self._append_results(match_local_target_multi(member, suffixes))
                     records = self._neighbors(member.interface)
+                    try:
+                        member_network = parse_ipv4_network(
+                            member.local_ip, member.prefix_length
+                        )
+                        records = [
+                            record
+                            for record in records
+                            if ipaddress.ip_address(record.ip) in member_network
+                        ]
+                    except (CommandError, ValueError):
+                        pass
                     self._append_results(
                         match_neighbor_records_multi(
                             records,
@@ -1053,6 +1327,13 @@ class ScanManager:
             with self._lock:
                 if self._state["job_id"] == job_id:
                     self._state["running"] = False
+                    self._state["paused"] = False
+            callback = self._on_finish
+            if callback is not None:
+                try:
+                    callback(self.status())
+                except Exception:
+                    pass
 
 
 def max_configured_hosts() -> int:

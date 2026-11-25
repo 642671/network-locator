@@ -28,3 +28,19 @@ test("CSV escaping handles quotes, commas, newlines, and formulas", () => {
 test("dateStamp is deterministic in local time", () => {
   assert.equal(csv.dateStamp(new Date(2026, 9, 30, 9, 7, 5)), "20261030-090705");
 });
+
+
+test("CSV honours delimiter, header and BOM settings", () => {
+  const rows = [
+    { interface: "eth0", scan_range: "192.0.2.0/24", ip: "192.0.2.10", mac: "02-42-AC-11-00-10", state: "LOCAL" }
+  ];
+  const semicolon = csv.buildCsv(rows, undefined, { delimiter: ";", includeHeader: true, bom: false });
+  assert.ok(!semicolon.startsWith("\ufeff"));
+  assert.match(semicolon, /^网卡;扫描范围;IP 地址;MAC 地址;状态/);
+  assert.match(semicolon, /eth0;192\.0\.2\.0\/24;192\.0\.2\.10;02-42-AC-11-00-10;本机$/);
+  const noHeader = csv.buildCsv(rows, undefined, { delimiter: ",", includeHeader: false, bom: false });
+  assert.equal(noHeader.split("\r\n").length, 1);
+  assert.ok(noHeader.startsWith("eth0,192.0.2.0/24"));
+  const tabbed = csv.buildCsv(rows, undefined, { delimiter: "\t", includeHeader: false, bom: false });
+  assert.ok(tabbed.startsWith("eth0\t192.0.2.0/24"));
+});
