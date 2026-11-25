@@ -68,3 +68,48 @@ test("backend MAC lookup errors are localized without residual Chinese", () => {
     assert.ok(!/[\u3400-\u9fff]/.test(value), value);
   }
 });
+
+test("analysis and scan history copy is English", () => {
+  const keys = [
+    "网络分析",
+    "扫描任务",
+    "设备事件",
+    "扫描结果",
+    "默认网关",
+    "未知设备",
+    "显示 ",
+    " / 共 ",
+    " 条",
+    "上一页",
+    "下一页",
+    "正在读取",
+    "正在读取任务详情",
+    "正在导出",
+    "正在读取接口与网关",
+    "正在读取扫描历史",
+    "该任务没有设备事件。",
+    " 条扫描结果",
+    "该任务没有保存扫描结果。"
+  ];
+  for (const key of keys) {
+    const value = i18n.t(key);
+    assert.notEqual(value, key, key);
+    assert.ok(!/[\u3400-\u9fff]/.test(value), key + " -> " + value);
+  }
+});
+
+test("analysis ping errors are localized without residual Chinese", () => {
+  const messages = [
+    "请输入要测试的 IP 或主机名",
+    "请输入有效的 IPv4 地址或主机名",
+    "Ping 次数必须是 1 到 20 之间的整数",
+    "系统没有可用的 ping 命令",
+    "ping 执行失败：timed out",
+    "没有可用的默认网关"
+  ];
+  for (const message of messages) {
+    const value = i18n.translateMessage(message);
+    assert.notEqual(value, message, message);
+    assert.ok(!/[\u3400-\u9fff]/.test(value), value);
+  }
+});

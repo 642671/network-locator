@@ -873,9 +873,28 @@
   background: rgba(185, 28, 28, 0.07);
 }
 
+.v2-ping-result.is-error {
+  border-color: rgba(185, 28, 28, 0.45);
+  background: rgba(185, 28, 28, 0.1);
+}
+
+.v2-ping-result.is-loading {
+  border-color: var(--v2-accent);
+  background: var(--v2-accent-soft, var(--v2-surface-muted));
+}
+
 .v2-ping-result .v2-muted {
   font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 11px;
+}
+
+.v2-ping-result .v2-name-line {
+  flex-wrap: wrap;
+}
+
+.v2-ping-result .v2-name-line strong {
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .v2-table-card > .v2-warning {

@@ -533,8 +533,21 @@
     ping: function (body) {
       return request("v2/analysis/ping", body, { timeoutMs: 60000 });
     },
-    scans: function (limit) { return request("v2/scans?limit=" + encodeURIComponent(limit || 100)); },
-    scan: function (id) { return request("v2/scans/" + encodeURIComponent(id)); },
+    scans: function (offset, limit) {
+      return request(
+        "v2/scans?limit=" + encodeURIComponent(limit || 50) +
+        "&offset=" + encodeURIComponent(offset || 0)
+      );
+    },
+    scan: function (id, resultOffset, resultLimit, eventOffset, eventLimit) {
+      return request(
+        "v2/scans/" + encodeURIComponent(id) +
+        "?result_limit=" + encodeURIComponent(resultLimit || 50) +
+        "&result_offset=" + encodeURIComponent(resultOffset || 0) +
+        "&event_limit=" + encodeURIComponent(eventLimit || 50) +
+        "&event_offset=" + encodeURIComponent(eventOffset || 0)
+      );
+    },
     purgeScans: function (days) {
       return request("v2/scans/purge", days === undefined ? {} : { older_than_days: days });
     },

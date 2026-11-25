@@ -63,9 +63,17 @@
       error: ""
     },
     analysis: null,
+    analysisLoading: false,
+    analysisError: "",
     history: {
       tasks: [],
-      detail: null
+      total: 0,
+      offset: 0,
+      limit: 50,
+      hasMore: false,
+      loading: false,
+      detail: null,
+      detailId: ""
     },
     settings: null,
     drawer: {
@@ -566,7 +574,7 @@
       return loadAnalysis();
     }
     if (route === "history") {
-      return loadHistory();
+      return loadHistory(state.history.offset);
     }
     if (route === "settings") {
       return loadSettings();
@@ -2215,8 +2223,15 @@
     if (!payload) {
       return D.tr("尚未测试");
     }
+    if (payload.error) {
+      return D.tr("Ping 失败");
+    }
     if (!payload.reachable) {
-      return D.tr("不可达") + " · " + D.tr("丢包 ") + (payload.loss_percent || 100) + "%";
+      var unreachable = D.tr("不可达") + " · " + D.tr("丢包 ") + (payload.loss_percent || 100) + "%";
+      if (payload.transmitted) {
+        unreachable += " · " + (payload.received || 0) + "/" + payload.transmitted;
+      }
+      return unreachable;
     }
     var avg = payload.avg_ms === null || payload.avg_ms === undefined ? "--" : payload.avg_ms + " ms";
     var min = payload.min_ms === null || payload.min_ms === undefined ? "--" : payload.min_ms;
@@ -2244,6 +2259,33 @@
     }
   }
 
+  function renderPingLoading(host) {
+    var target = doc("v2PingResult");
+    if (!target) {
+      return;
+    }
+    target.className = "v2-ping-result is-loading";
+    D.clear(target);
+    var head = D.el("div", "v2-name-line");
+    head.appendChild(D.el("strong", "", host || D.tr("目标")));
+    head.appendChild(D.el("span", "v2-muted", D.tr("测试中…")));
+    target.appendChild(head);
+  }
+
+  function renderPingError(host, message) {
+    var target = doc("v2PingResult");
+    if (!target) {
+      return;
+    }
+    target.className = "v2-ping-result is-error";
+    D.clear(target);
+    var head = D.el("div", "v2-name-line");
+    head.appendChild(D.el("strong", "", host || D.tr("目标")));
+    head.appendChild(D.el("span", "v2-muted", D.tr("Ping 失败")));
+    target.appendChild(head);
+    target.appendChild(D.el("p", "v2-subtle", message || D.tr("Ping 失败")));
+  }
+
   async function runPing() {
     var hostInput = doc("v2PingHost");
     var countSelect = doc("v2PingCount");
@@ -2254,6 +2296,7 @@
       return;
     }
     setBusy(button, true, D.tr("测试中…"));
+    renderPingLoading(host);
     try {
       var payload = await D.API.ping({
         host: host,
@@ -2262,7 +2305,7 @@
       renderPing(payload);
       D.toast(pingSummary(payload), !payload.reachable);
     } catch (error) {
-      renderPing({ host: host, reachable: false, loss_percent: 100, transmitted: 0, received: 0 });
+      renderPingError(host, error.message || D.tr("Ping 失败"));
       D.toast(error.message || D.tr("Ping 失败"), true);
     } finally {
       setBusy(button, false);
@@ -2272,16 +2315,13 @@
   async function testGateway() {
     var button = doc("v2GatewayTest");
     setBusy(button, true, D.tr("检测中…"));
+    renderPingLoading(D.tr("默认网关"));
     try {
       var payload = await D.API.ping({ gateway: true, count: 4 });
       renderPing(payload);
       D.toast(pingSummary(payload), !payload.reachable);
     } catch (error) {
-      var target = doc("v2PingResult");
-      if (target) {
-        target.className = "v2-ping-result is-unreachable";
-        target.textContent = error.message || D.tr("网关检测失败");
-      }
+      renderPingError(D.tr("默认网关"), error.message || D.tr("网关检测失败"));
       D.toast(error.message || D.tr("网关检测失败"), true);
     } finally {
       setBusy(button, false);
@@ -2409,13 +2449,47 @@
     }
   }
 
+  function setAnalysisLoading(show) {
+    state.analysisLoading = !!show;
+    var loading = doc("v2AnalysisLoading");
+    if (loading) {
+      loading.hidden = !show;
+    }
+    if (show) {
+      D.setText("v2AnalysisSummary", D.tr("正在读取接口与网关"));
+    }
+  }
+
+  function showAnalysisError(message) {
+    state.analysisError = message || "";
+    var box = doc("v2AnalysisError");
+    if (box) {
+      box.hidden = !message;
+      box.textContent = message || "";
+    }
+    if (message) {
+      D.setText("v2AnalysisSummary", D.tr("加载失败"));
+    }
+  }
+
   async function loadAnalysis() {
+    var button = doc("v2AnalysisRefresh");
+    if (button) {
+      setBusy(button, true, D.tr("正在读取"));
+    }
+    showAnalysisError("");
+    setAnalysisLoading(true);
     try {
       var payload = await D.API.analysis();
       renderAnalysis(payload);
     } catch (error) {
-      D.setText("v2AnalysisSummary", D.tr("加载失败"));
+      showAnalysisError(error.message || D.tr("网络分析加载失败"));
       D.toast(error.message || D.tr("网络分析加载失败"), true);
+    } finally {
+      setAnalysisLoading(false);
+      if (button) {
+        setBusy(button, false);
+      }
     }
   }
 
@@ -2474,12 +2548,25 @@
     return parts.length ? parts.join(D.tr("；")) : "--";
   }
 
+  function historyPageInfo(offset, count, total) {
+    var start = count ? offset + 1 : 0;
+    return D.tr("显示 ") + start + "–" + (offset + count) +
+      D.tr(" / 共 ") + total + D.tr(" 条");
+  }
+
   function renderHistory(payload) {
     var tasks = payload.tasks || [];
+    var total = payload.total || tasks.length;
+    var offset = payload.offset || 0;
+    var limit = payload.limit || 50;
     state.history.tasks = tasks;
+    state.history.total = total;
+    state.history.offset = offset;
+    state.history.limit = limit;
+    state.history.hasMore = !!payload.has_more;
     D.setText(
       "v2HistorySummary",
-      D.tr("共 ") + D.countTasks(payload.total || tasks.length) +
+      D.tr("共 ") + D.countTasks(total) +
         (tasks.length ? " · " + D.tr("最近 ") + D.formatTime(tasks[0].finished_at, true) : "")
     );
     var tbody = doc("v2HistoryTableBody");
@@ -2515,15 +2602,62 @@
     if (empty) {
       empty.hidden = tasks.length > 0;
     }
+    var pager = doc("v2HistoryPager");
+    if (pager) {
+      pager.hidden = total <= limit;
+      D.setText("v2HistoryPagerInfo", historyPageInfo(offset, tasks.length, total));
+    }
+    var prev = doc("v2HistoryPrev");
+    if (prev) {
+      prev.disabled = offset <= 0;
+    }
+    var next = doc("v2HistoryNext");
+    if (next) {
+      next.disabled = !state.history.hasMore;
+    }
   }
 
-  async function loadHistory() {
+  function showHistoryError(message) {
+    var box = doc("v2HistoryError");
+    if (box) {
+      box.hidden = !message;
+      box.textContent = message || "";
+    }
+    if (message) {
+      D.setText("v2HistorySummary", D.tr("加载失败"));
+    }
+  }
+
+  async function loadHistory(offset) {
+    var targetOffset = Math.max(0, Number(offset) || 0);
+    var refresh = doc("v2HistoryRefresh");
+    var loading = doc("v2HistoryLoading");
+    if (refresh) {
+      setBusy(refresh, true, D.tr("正在读取"));
+    }
+    showHistoryError("");
+    if (loading) {
+      loading.hidden = false;
+    }
+    state.history.loading = true;
     try {
-      var payload = await D.API.scans(100);
+      var payload = await D.API.scans(targetOffset, 50);
       renderHistory(payload);
     } catch (error) {
-      D.setText("v2HistorySummary", D.tr("加载失败"));
+      showHistoryError(error.message || D.tr("扫描历史加载失败"));
+      var empty = doc("v2HistoryEmpty");
+      if (empty) {
+        empty.hidden = true;
+      }
       D.toast(error.message || D.tr("扫描历史加载失败"), true);
+    } finally {
+      state.history.loading = false;
+      if (loading) {
+        loading.hidden = true;
+      }
+      if (refresh) {
+        setBusy(refresh, false);
+      }
     }
   }
 
@@ -2534,8 +2668,25 @@
     return item;
   }
 
+  function detailPager(info, canPrev, canNext, onPrev, onNext) {
+    var pager = D.el("div", "v2-pager");
+    pager.appendChild(D.el("span", "v2-muted", info));
+    var prev = D.el("button", "v2-button", D.tr("上一页"));
+    prev.type = "button";
+    prev.disabled = !canPrev;
+    prev.addEventListener("click", onPrev);
+    pager.appendChild(prev);
+    var next = D.el("button", "v2-button", D.tr("下一页"));
+    next.type = "button";
+    next.disabled = !canNext;
+    next.addEventListener("click", onNext);
+    pager.appendChild(next);
+    return pager;
+  }
+
   function renderHistoryDetail(task) {
     state.history.detail = task;
+    state.history.detailId = task.task_id || "";
     var section = doc("v2HistoryDetail");
     var body = doc("v2HistoryDetailBody");
     if (!section || !body) {
@@ -2557,15 +2708,90 @@
     summary.appendChild(historyField("新增设备", task.new_devices || 0));
     summary.appendChild(historyField("离线设备", task.offline_devices || 0));
     summary.appendChild(historyField("IP 变化", task.ip_changes || 0));
-    if (task.error) {
-      summary.appendChild(historyField("错误", task.error));
-    }
     body.appendChild(summary);
-    if ((task.warnings || []).length) {
-      var warning = D.el("div", "v2-warning", task.warnings.map(function (item) { return D.tr(item); }).join(D.tr("；")));
-      body.appendChild(warning);
+    if (task.error) {
+      body.appendChild(
+        D.el("div", "v2-warning", D.tr("错误") + ": " + D.translateMessage(task.error))
+      );
     }
+    if ((task.warnings || []).length) {
+      body.appendChild(
+        D.el(
+          "div",
+          "v2-warning",
+          task.warnings.map(function (item) { return D.tr(item); }).join(D.tr("；"))
+        )
+      );
+    }
+
+    var events = task.events || [];
+    var eventsTotal = task.events_total || events.length;
+    var eventOffset = task.event_offset || 0;
+    var eventLimit = task.event_limit || 50;
+    var eventHead = D.el("div", "v2-card-header v2-card-header-row");
+    eventHead.appendChild(
+      D.el("h3", "v2-subhead", D.tr("设备事件") + " · " + eventsTotal)
+    );
+    body.appendChild(eventHead);
+    if (events.length) {
+      var timeline = D.el("div", "v2-timeline");
+      events.forEach(function (event) {
+        var row = D.el("div", "v2-timeline-item");
+        row.appendChild(D.el("span", "v2-timeline-dot"));
+        var eventBody = D.el("div", "v2-timeline-body");
+        var line = D.el("div", "v2-timeline-head");
+        var deviceName = event.device_name || "";
+        if (deviceName === "未命名设备") {
+          deviceName = D.tr("未命名设备");
+        }
+        if (event.device_id && deviceName) {
+          var deviceLink = D.el("button", "v2-text-button", deviceName);
+          deviceLink.type = "button";
+          deviceLink.setAttribute("data-history-device", event.device_id);
+          line.appendChild(deviceLink);
+        } else {
+          line.appendChild(D.el("strong", "", deviceName || D.tr("未知设备")));
+        }
+        if (event.device_status) {
+          line.appendChild(D.statusBadge(event.device_status));
+        }
+        line.appendChild(D.el("span", "v2-muted", D.eventLabel(event.kind) || event.kind || "--"));
+        line.appendChild(D.el("span", "v2-muted", D.formatTime(event.created_at, true)));
+        eventBody.appendChild(line);
+        var eventDetail = D.eventDetail(event);
+        if (eventDetail) {
+          eventBody.appendChild(D.el("span", "v2-subtle", eventDetail));
+        }
+        row.appendChild(eventBody);
+        timeline.appendChild(row);
+      });
+      body.appendChild(timeline);
+      if (eventsTotal > eventLimit) {
+        body.appendChild(
+          detailPager(
+            historyPageInfo(eventOffset, events.length, eventsTotal),
+            eventOffset > 0,
+            !!task.events_has_more,
+            function () {
+              showHistoryDetail(task.task_id, task.result_offset || 0, Math.max(0, eventOffset - eventLimit));
+            },
+            function () {
+              showHistoryDetail(task.task_id, task.result_offset || 0, eventOffset + eventLimit);
+            }
+          )
+        );
+      }
+    } else {
+      body.appendChild(D.el("div", "v2-empty", D.tr("该任务没有设备事件。")));
+    }
+
     var results = task.results || [];
+    var resultsTotal = task.results_total || results.length;
+    var resultOffset = task.result_offset || 0;
+    var resultLimit = task.result_limit || 50;
+    var resultHead = D.el("div", "v2-card-header v2-card-header-row");
+    resultHead.appendChild(D.el("h3", "v2-subhead", D.tr("扫描结果") + " · " + resultsTotal));
+    body.appendChild(resultHead);
     if (results.length) {
       var wrap = D.el("div", "v2-table-wrap");
       var table = D.el("table", "v2-table");
@@ -2589,6 +2815,21 @@
       table.appendChild(tbody);
       wrap.appendChild(table);
       body.appendChild(wrap);
+      if (resultsTotal > resultLimit) {
+        body.appendChild(
+          detailPager(
+            historyPageInfo(resultOffset, results.length, resultsTotal),
+            resultOffset > 0,
+            !!task.results_has_more,
+            function () {
+              showHistoryDetail(task.task_id, Math.max(0, resultOffset - resultLimit), eventOffset);
+            },
+            function () {
+              showHistoryDetail(task.task_id, resultOffset + resultLimit, eventOffset);
+            }
+          )
+        );
+      }
     } else {
       body.appendChild(D.el("div", "v2-empty-state", D.tr("该任务没有保存扫描结果。")));
     }
@@ -2598,31 +2839,88 @@
     }
   }
 
-  async function showHistoryDetail(taskId) {
+  async function showHistoryDetail(taskId, resultOffset, eventOffset) {
     if (!taskId) {
       return;
     }
+    var section = doc("v2HistoryDetail");
+    var body = doc("v2HistoryDetailBody");
+    if (section) {
+      section.hidden = false;
+    }
+    if (body) {
+      D.clear(body);
+      var loading = D.el("div", "v2-loading", D.tr("正在读取任务详情"));
+      loading.appendChild(D.el("span", "v2-spinner"));
+      body.appendChild(loading);
+    }
+    var token = (state.history.detailToken || 0) + 1;
+    state.history.detailToken = token;
     try {
-      var payload = await D.API.scan(taskId);
+      var payload = await D.API.scan(
+        taskId,
+        Math.max(0, Number(resultOffset) || 0),
+        50,
+        Math.max(0, Number(eventOffset) || 0),
+        50
+      );
+      if (token !== state.history.detailToken) {
+        return;
+      }
       if (!payload.task) {
         throw new Error(D.tr("扫描任务不存在"));
       }
       renderHistoryDetail(payload.task);
     } catch (error) {
+      if (token !== state.history.detailToken) {
+        return;
+      }
+      if (body) {
+        D.clear(body);
+        body.appendChild(D.el("div", "v2-warning", error.message || D.tr("任务详情加载失败")));
+      }
       D.toast(error.message || D.tr("任务详情加载失败"), true);
     }
   }
 
-  function exportHistoryDetail() {
+  async function exportHistoryDetail() {
     var task = state.history.detail;
-    if (!task) {
+    if (!task || !task.task_id) {
       return;
     }
-    if (!(task.results || []).length) {
-      D.toast(D.tr("该任务没有可导出的扫描结果。"), true);
-      return;
+    var button = doc("v2HistoryDetailExport");
+    if (button) {
+      setBusy(button, true, D.tr("正在导出"));
     }
-    D.exportResults(task.results, appSettings(), "network-locator-scan-" + task.task_id);
+    try {
+      var rows = [];
+      var offset = 0;
+      while (true) {
+        var payload = await D.API.scan(task.task_id, offset, 500, 0, 1);
+        var page = payload.task;
+        if (!page) {
+          throw new Error(D.tr("扫描任务不存在"));
+        }
+        var batch = page.results || [];
+        rows = rows.concat(batch);
+        if (!page.results_has_more || !batch.length) {
+          break;
+        }
+        offset += batch.length;
+      }
+      if (!rows.length) {
+        D.toast(D.tr("该任务没有可导出的扫描结果。"), true);
+        return;
+      }
+      D.exportResults(rows, appSettings(), "network-locator-scan-" + task.task_id);
+      D.toast(D.tr("已导出 ") + rows.length + D.tr(" 条扫描结果"), false);
+    } catch (error) {
+      D.toast(D.tr("导出失败") + ": " + (error.message || ""), true);
+    } finally {
+      if (button) {
+        setBusy(button, false);
+      }
+    }
   }
 
   async function purgeHistory() {
@@ -2632,7 +2930,7 @@
     try {
       var payload = await D.API.purgeScans();
       D.toast(D.tr("已清理 ") + (payload.removed || 0) + D.tr(" 条扫描记录"), false);
-      await loadHistory();
+      await loadHistory(0);
     } catch (error) {
       D.toast(error.message || D.tr("清理历史失败"), true);
     }
@@ -2641,7 +2939,23 @@
   function bindHistory() {
     var refresh = doc("v2HistoryRefresh");
     if (refresh) {
-      refresh.addEventListener("click", loadHistory);
+      refresh.addEventListener("click", function () {
+        loadHistory(state.history.offset);
+      });
+    }
+    var prev = doc("v2HistoryPrev");
+    if (prev) {
+      prev.addEventListener("click", function () {
+        loadHistory(Math.max(0, state.history.offset - state.history.limit));
+      });
+    }
+    var next = doc("v2HistoryNext");
+    if (next) {
+      next.addEventListener("click", function () {
+        if (state.history.hasMore) {
+          loadHistory(state.history.offset + state.history.limit);
+        }
+      });
     }
     var purge = doc("v2HistoryPurge");
     if (purge) {
@@ -2656,6 +2970,15 @@
         }
       });
     }
+    var detailBody = doc("v2HistoryDetailBody");
+    if (detailBody) {
+      detailBody.addEventListener("click", function (event) {
+        var device = event.target.closest("[data-history-device]");
+        if (device) {
+          openDevice(device.getAttribute("data-history-device"));
+        }
+      });
+    }
     var close = doc("v2HistoryDetailClose");
     if (close) {
       close.addEventListener("click", function () {
@@ -2664,6 +2987,8 @@
           section.hidden = true;
         }
         state.history.detail = null;
+        state.history.detailId = "";
+        state.history.detailToken = (state.history.detailToken || 0) + 1;
       });
     }
     var exportButton = doc("v2HistoryDetailExport");

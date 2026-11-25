@@ -463,6 +463,8 @@
             </div>
           </div>
           <div id="v2AnalysisWarnings" class="v2-warning" hidden></div>
+          <div id="v2AnalysisError" class="v2-warning" hidden></div>
+          <div id="v2AnalysisLoading" class="v2-loading" hidden><span class="v2-spinner"></span> 正在读取接口与网关</div>
           <div class="v2-grid-2">
             <section class="v2-card">
               <header class="v2-card-header"><h2>接口信息</h2></header>
@@ -537,6 +539,13 @@
               </table>
             </div>
             <div id="v2HistoryEmpty" class="v2-empty-state" hidden>暂无扫描历史，完成任务后会自动记录。</div>
+            <div id="v2HistoryError" class="v2-warning" hidden></div>
+            <div id="v2HistoryLoading" class="v2-loading" hidden><span class="v2-spinner"></span> 正在读取扫描历史</div>
+            <div id="v2HistoryPager" class="v2-pager" hidden>
+              <span id="v2HistoryPagerInfo" class="v2-muted"></span>
+              <button id="v2HistoryPrev" class="v2-button" type="button">上一页</button>
+              <button id="v2HistoryNext" class="v2-button" type="button">下一页</button>
+            </div>
           </section>
           <section id="v2HistoryDetail" class="v2-card v2-table-card" hidden>
             <header class="v2-card-header v2-card-header-row">

@@ -1092,15 +1092,57 @@ class Store:
                 except (TypeError, ValueError):
                     item[key] = []
             tasks.append(item)
-        return {"tasks": tasks, "total": total, "limit": safe_limit, "offset": safe_offset}
+        return {
+            "tasks": tasks,
+            "total": total,
+            "limit": safe_limit,
+            "offset": safe_offset,
+            "has_more": safe_offset + len(tasks) < total,
+        }
 
-    def get_task(self, task_id: str) -> dict[str, Any] | None:
+    def get_task(
+        self,
+        task_id: str,
+        *,
+        result_limit: int = 50,
+        result_offset: int = 0,
+        event_limit: int = 50,
+        event_offset: int = 0,
+    ) -> dict[str, Any] | None:
+        safe_result_limit = max(1, min(500, int(result_limit)))
+        safe_result_offset = max(0, int(result_offset))
+        safe_event_limit = max(1, min(200, int(event_limit)))
+        safe_event_offset = max(0, int(event_offset))
         with self._lock, self._connect() as connection:
             row = connection.execute(
                 "SELECT * FROM scan_tasks WHERE task_id = ?", (task_id,)
             ).fetchone()
-        if row is None:
-            return None
+            if row is None:
+                return None
+            results_total = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM scan_results WHERE task_id = ?", (task_id,)
+                ).fetchone()[0]
+            )
+            result_rows = connection.execute(
+                "SELECT * FROM scan_results WHERE task_id = ? "
+                "ORDER BY result_id LIMIT ? OFFSET ?",
+                (task_id, safe_result_limit, safe_result_offset),
+            ).fetchall()
+            events_total = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM device_events WHERE task_id = ?", (task_id,)
+                ).fetchone()[0]
+            )
+            event_rows = connection.execute(
+                "SELECT e.*, d.display_name AS device_display_name, "
+                "d.vendor AS device_vendor, d.mac_current AS device_mac, "
+                "d.status AS device_status "
+                "FROM device_events e LEFT JOIN devices d ON d.device_id = e.device_id "
+                "WHERE e.task_id = ? ORDER BY e.created_at DESC, e.event_id DESC "
+                "LIMIT ? OFFSET ?",
+                (task_id, safe_event_limit, safe_event_offset),
+            ).fetchall()
         item = dict(row)
         for key in ("network_ids", "networks", "suffixes", "custom_ranges", "warnings", "results"):
             try:
@@ -1108,11 +1150,6 @@ class Store:
             except (TypeError, ValueError):
                 item[key] = []
         result_items: list[dict[str, Any]] = []
-        with self._lock, self._connect() as connection:
-            result_rows = connection.execute(
-                "SELECT * FROM scan_results WHERE task_id = ? ORDER BY result_id",
-                (task_id,),
-            ).fetchall()
         for result_row in result_rows:
             result = dict(result_row)
             try:
@@ -1138,8 +1175,45 @@ class Store:
                 }
             )
             result_items.append(raw)
-        if result_items:
-            item["results"] = result_items
+        item["results"] = result_items
+        item["results_total"] = results_total
+        item["result_limit"] = safe_result_limit
+        item["result_offset"] = safe_result_offset
+        item["results_has_more"] = safe_result_offset + len(result_items) < results_total
+        event_items: list[dict[str, Any]] = []
+        for event_row in event_rows:
+            event = dict(event_row)
+            try:
+                detail_args = json.loads(event.get("detail_args") or "[]")
+            except (TypeError, ValueError):
+                detail_args = []
+            label_source = {
+                "display_name": event.get("device_display_name"),
+                "vendor": event.get("device_vendor") or "",
+                "mac_current": event.get("device_mac") or "",
+            }
+            event_items.append(
+                {
+                    "event_id": event.get("event_id"),
+                    "device_id": event.get("device_id") or "",
+                    "device_name": (
+                        _device_label(label_source)
+                        if event.get("device_display_name") is not None
+                        else ""
+                    ),
+                    "device_status": event.get("device_status") or "",
+                    "kind": event.get("kind") or "",
+                    "detail": event.get("detail") or "",
+                    "detail_code": event.get("detail_code") or "",
+                    "detail_args": detail_args if isinstance(detail_args, list) else [],
+                    "created_at": event.get("created_at") or "",
+                }
+            )
+        item["events"] = event_items
+        item["events_total"] = events_total
+        item["event_limit"] = safe_event_limit
+        item["event_offset"] = safe_event_offset
+        item["events_has_more"] = safe_event_offset + len(event_items) < events_total
         return item
 
     # ------------------------------------------------- network observations

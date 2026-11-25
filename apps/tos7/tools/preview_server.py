@@ -641,11 +641,11 @@ class V2PreviewState:
                 "custom_ranges": [],
                 "total_hosts": 508,
                 "probed_hosts": 508,
-                "discovered": 9,
+                "discovered": 10,
                 "new_devices": 2,
                 "offline_devices": 1,
                 "ip_changes": 1,
-                "result_count": 9,
+                "result_count": 10,
                 "warnings": ["预览模式：任务与结果为界面示例数据"],
                 "error": "",
                 "results": [
@@ -654,9 +654,48 @@ class V2PreviewState:
                         "scan_range": item["network_id"].split("|", 1)[-1],
                         "ip": item["ip"],
                         "mac": item["mac"],
-                        "state": "LOCAL" if item["status"] == "online" else "STALE",
+                        "state": (
+                            "LOCAL"
+                            if item["device_id"] == "dev-sample-2"
+                            else ("REACHABLE" if item["status"] == "online" else "STALE")
+                        ),
                     }
                     for item in self.devices
+                ],
+                "events": [
+                    {
+                        "event_id": "sample-event-1",
+                        "device_id": "dev-sample-1",
+                        "device_name": "核心网关",
+                        "device_status": "online",
+                        "kind": "discovered",
+                        "detail": "",
+                        "detail_code": "discovered",
+                        "detail_args": ["192.0.2.1", "4C-A6-4D-4A-8A-CD"],
+                        "created_at": _v2_iso(7),
+                    },
+                    {
+                        "event_id": "sample-event-2",
+                        "device_id": "dev-sample-4",
+                        "device_name": "设计工作站",
+                        "device_status": "online",
+                        "kind": "ip_changed",
+                        "detail": "",
+                        "detail_code": "ip_changed",
+                        "detail_args": ["192.0.2.86", "192.0.2.88"],
+                        "created_at": _v2_iso(7),
+                    },
+                    {
+                        "event_id": "sample-event-3",
+                        "device_id": "dev-sample-6",
+                        "device_name": "访客 iPad",
+                        "device_status": "offline",
+                        "kind": "offline",
+                        "detail": "",
+                        "detail_code": "offline",
+                        "detail_args": [],
+                        "created_at": _v2_iso(7),
+                    },
                 ],
             },
             {
@@ -771,6 +810,61 @@ class V2PreviewState:
                         "online",
                         index % 240,
                     )
+                )
+
+    def add_bulk_tasks(self, count: int) -> None:
+        """Append synthetic scan tasks; the first one holds every bulk result."""
+
+        bulk_results = [
+            {
+                "interface": device["interface"],
+                "scan_range": "10.99.0.0/16",
+                "ip": device["ip"],
+                "mac": device["mac"],
+                "state": "REACHABLE",
+            }
+            for device in self.devices
+            if device["device_id"].startswith("dev-bulk-")
+        ]
+        with self.lock:
+            for index in range(max(0, int(count))):
+                self.tasks.append(
+                    {
+                        "task_id": f"sample-bulk-task-{index}",
+                        "kind": "network" if index % 2 == 0 else "inventory",
+                        "status": "completed",
+                        "started_at": _v2_iso(60 * 3 + index * 5),
+                        "finished_at": _v2_iso(60 * 3 + index * 5 - 1),
+                        "network_ids": ["enp1s0|10.99.0.0/16"],
+                        "networks": [
+                            {
+                                "interface": "enp1s0",
+                                "alias": "enp1s0",
+                                "local_ip": "10.99.0.1",
+                                "prefix_length": 16,
+                                "gateway": "10.99.0.1",
+                                "network": "10.99.0.0",
+                                "broadcast": "10.99.255.255",
+                                "scan_range": "10.99.0.0/16",
+                                "host_count": 1022,
+                                "local_source": "10.99.0.1",
+                                "local_mac": "02-42-AC-99-00-01",
+                                "network_id": "enp1s0|10.99.0.0/16",
+                            }
+                        ],
+                        "suffixes": [],
+                        "custom_ranges": [],
+                        "total_hosts": 1022,
+                        "probed_hosts": 1022,
+                        "discovered": len(bulk_results) if index == 0 else 0,
+                        "new_devices": len(bulk_results) if index == 0 else 0,
+                        "offline_devices": 0,
+                        "ip_changes": 0,
+                        "result_count": len(bulk_results) if index == 0 else 0,
+                        "warnings": ["预览模式：任务与结果为界面示例数据"],
+                        "error": "",
+                        "results": bulk_results if index == 0 else [],
+                    }
                 )
 
     def _public(self, device: dict) -> dict:
@@ -1069,15 +1163,35 @@ class V2PreviewState:
         if not host and body.get("gateway"):
             host = "192.0.2.1"
         if not host:
+            raise ValueError("请输入要测试的 IP 或主机名")
+        if re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?", host) is None:
             raise ValueError("请输入有效的 IPv4 地址或主机名")
+        count = max(1, min(20, int(body.get("count") or 4)))
+        if host.startswith("203.0.113."):
+            return {
+                "ok": True,
+                "app": APP_ID,
+                "version": PREVIEW_VERSION,
+                "sample": True,
+                "host": host,
+                "transmitted": count,
+                "received": 0,
+                "loss_percent": 100.0,
+                "reachable": False,
+                "min_ms": None,
+                "avg_ms": None,
+                "max_ms": None,
+                "mdev_ms": None,
+                "measured_at": _v2_iso(0),
+            }
         return {
             "ok": True,
             "app": APP_ID,
             "version": PREVIEW_VERSION,
             "sample": True,
             "host": host,
-            "transmitted": int(body.get("count") or 4),
-            "received": int(body.get("count") or 4),
+            "transmitted": count,
+            "received": count,
             "loss_percent": 0.0,
             "reachable": True,
             "min_ms": 0.42,
@@ -1101,13 +1215,76 @@ class V2PreviewState:
             "total": len(items),
             "limit": limit,
             "offset": offset,
+            "has_more": offset + len(items[offset: offset + limit]) < len(items),
         }
 
-    def get_task(self, task_id: str):
+    def _task_events(self, task: dict) -> list[dict]:
+        explicit = task.get("events") or []
+        if explicit:
+            return explicit
+        events = []
+        for index, item in enumerate(task.get("results") or []):
+            mac = str(item.get("mac") or "")
+            device = next(
+                (candidate for candidate in self.devices if candidate["mac"] == mac),
+                None,
+            )
+            events.append(
+                {
+                    "event_id": f"{task['task_id']}-event-{index}",
+                    "device_id": device["device_id"] if device else "",
+                    "device_name": (
+                        (device.get("display_name") or device.get("name") or "")
+                        if device
+                        else ""
+                    ),
+                    "device_status": device["status"] if device else "unknown",
+                    "kind": "discovered",
+                    "detail": "",
+                    "detail_code": "discovered",
+                    "detail_args": [str(item.get("ip") or ""), mac],
+                    "created_at": task["finished_at"],
+                }
+            )
+        return events
+
+    def get_task(
+        self,
+        task_id: str,
+        result_limit: int = 50,
+        result_offset: int = 0,
+        event_limit: int = 50,
+        event_offset: int = 0,
+    ):
         with self.lock:
             for item in self.tasks:
                 if item["task_id"] == task_id:
-                    return dict(item)
+                    task = dict(item)
+                    results = list(task.pop("results", []) or [])
+                    events = self._task_events(dict(item))
+                    safe_result_limit = max(1, min(500, int(result_limit)))
+                    safe_result_offset = max(0, int(result_offset))
+                    safe_event_limit = max(1, min(200, int(event_limit)))
+                    safe_event_offset = max(0, int(event_offset))
+                    task["results"] = results[
+                        safe_result_offset: safe_result_offset + safe_result_limit
+                    ]
+                    task["results_total"] = len(results)
+                    task["result_limit"] = safe_result_limit
+                    task["result_offset"] = safe_result_offset
+                    task["results_has_more"] = (
+                        safe_result_offset + len(task["results"]) < len(results)
+                    )
+                    task["events"] = events[
+                        safe_event_offset: safe_event_offset + safe_event_limit
+                    ]
+                    task["events_total"] = len(events)
+                    task["event_limit"] = safe_event_limit
+                    task["event_offset"] = safe_event_offset
+                    task["events_has_more"] = (
+                        safe_event_offset + len(task["events"]) < len(events)
+                    )
+                    return task
         return None
 
     def purge(self, days: object) -> dict:
@@ -1302,7 +1479,13 @@ def v2_dispatch(method: str, path: str, body: dict):
             if rest == ["scans"]:
                 return 200, V2.list_tasks(int(one("limit", "50") or 50), int(one("offset", "0") or 0))
             if len(rest) == 2 and rest[0] == "scans":
-                task = V2.get_task(rest[1])
+                task = V2.get_task(
+                    rest[1],
+                    int(one("result_limit", "50") or 50),
+                    int(one("result_offset", "0") or 0),
+                    int(one("event_limit", "50") or 50),
+                    int(one("event_offset", "0") or 0),
+                )
                 if task is None:
                     return 404, {"ok": False, "error": "扫描任务不存在"}
                 return 200, {"ok": True, "app": APP_ID, "version": PREVIEW_VERSION, "sample": True, "task": task}
@@ -1665,6 +1848,12 @@ def main() -> int:
         help="append N synthetic devices for large-table checks",
     )
     parser.add_argument(
+        "--bulk-tasks",
+        type=int,
+        default=0,
+        help="append N synthetic scan tasks for history pagination checks",
+    )
+    parser.add_argument(
         "--scan-step-delay",
         type=float,
         default=0.12,
@@ -1675,6 +1864,8 @@ def main() -> int:
     STATE = PreviewState(no_match=args.no_match)
     if args.bulk > 0:
         V2.add_bulk_devices(args.bulk)
+    if args.bulk_tasks > 0:
+        V2.add_bulk_tasks(args.bulk_tasks)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), PreviewHandler)
     print(f"Preview: http://127.0.0.1:{args.port}/")
     try:

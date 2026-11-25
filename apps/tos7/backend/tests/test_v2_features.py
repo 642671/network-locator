@@ -11,11 +11,13 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from network_locator.core import (  # noqa: E402
+    CommandError,
     NetworkTarget,
     ScanManager,
     expand_custom_range,
@@ -282,6 +284,78 @@ class StoreIdentityTests(unittest.TestCase):
         self.assertEqual(len(detail["results"]), 1)
         self.assertEqual(self.store.stats()["total"], 1)
 
+    def test_scan_task_list_paginates_with_has_more(self) -> None:
+        for index in range(3):
+            self.store.record_scan_task(
+                {
+                    "job_id": f"task-page-{index}",
+                    "status": "completed",
+                    "started_at": f"2026-01-0{index + 1}T10:00:00",
+                    "finished_at": f"2026-01-0{index + 1}T10:00:05",
+                    "networks": [
+                        {
+                            "interface": "eth0",
+                            "scan_range": "10.0.0.0/24",
+                            "network_id": "eth0|10.0.0.0/24",
+                        }
+                    ],
+                    "results": [],
+                },
+                kind="inventory",
+            )
+        first = self.store.list_tasks(limit=2, offset=0)
+        self.assertEqual(len(first["tasks"]), 2)
+        self.assertEqual(first["total"], 3)
+        self.assertTrue(first["has_more"])
+        second = self.store.list_tasks(limit=2, offset=2)
+        self.assertEqual(len(second["tasks"]), 1)
+        self.assertFalse(second["has_more"])
+
+    def test_scan_task_detail_paginates_results_and_events(self) -> None:
+        results = [
+            observation(f"AA-BB-CC-00-{index:02X}-{index:02X}", f"10.0.1.{index + 1}")
+            for index in range(60)
+        ]
+        self.store.record_scan_task(
+            {
+                "job_id": "task-paged-detail",
+                "status": "completed",
+                "started_at": "2026-01-01T10:00:00",
+                "finished_at": "2026-01-01T10:00:05",
+                "networks": [
+                    {
+                        "interface": "eth0",
+                        "scan_range": "10.0.0.0/24",
+                        "network_id": "eth0|10.0.0.0/24",
+                    }
+                ],
+                "results": results,
+            },
+            kind="inventory",
+        )
+        first = self.store.get_task(
+            "task-paged-detail", result_limit=50, result_offset=0,
+            event_limit=50, event_offset=0,
+        )
+        assert first is not None
+        self.assertEqual(len(first["results"]), 50)
+        self.assertEqual(first["results_total"], 60)
+        self.assertTrue(first["results_has_more"])
+        self.assertEqual(len(first["events"]), 50)
+        self.assertEqual(first["events_total"], 60)
+        self.assertTrue(first["events_has_more"])
+        self.assertTrue(first["events"][0]["device_name"])
+        self.assertEqual(first["events"][0]["detail_code"], "discovered")
+        second = self.store.get_task(
+            "task-paged-detail", result_limit=50, result_offset=50,
+            event_limit=50, event_offset=50,
+        )
+        assert second is not None
+        self.assertEqual(len(second["results"]), 10)
+        self.assertFalse(second["results_has_more"])
+        self.assertEqual(len(second["events"]), 10)
+        self.assertFalse(second["events_has_more"])
+
     def test_settings_persist_and_validate(self) -> None:
         self.store.update_settings({"scan_timeout_ms": 2500, "scan_concurrency": 24, "csv_delimiter": ";"})
         reopened = Store(self.store.path)
@@ -370,6 +444,136 @@ class StoreIdentityTests(unittest.TestCase):
         self.assertEqual(historical["count"], 1)
         self.assertEqual(historical["matches"][0]["device_id"], first["device_id"])
         self.assertIn("3C-07-54-9A-1B-2C", historical["matches"][0]["matched_macs"])
+
+
+class ScanHistoryApiTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = Store(Path(self.tmp.name) / "network-locator.sqlite")
+        for index in range(3):
+            self.store.record_scan_task(
+                {
+                    "job_id": f"api-task-{index}",
+                    "status": "completed",
+                    "started_at": f"2026-02-0{index + 1}T10:00:00",
+                    "finished_at": f"2026-02-0{index + 1}T10:00:05",
+                    "networks": [
+                        {
+                            "interface": "eth0",
+                            "scan_range": "10.0.0.0/24",
+                            "network_id": "eth0|10.0.0.0/24",
+                        }
+                    ],
+                    "results": [],
+                },
+                kind="inventory",
+            )
+        results = [
+            observation(f"AA-BB-CC-11-{index:02X}-{index:02X}", f"10.0.2.{index + 1}")
+            for index in range(60)
+        ]
+        self.store.record_scan_task(
+            {
+                "job_id": "api-task-detail",
+                "status": "completed",
+                "started_at": "2026-02-10T10:00:00",
+                "finished_at": "2026-02-10T10:00:05",
+                "networks": [
+                    {
+                        "interface": "eth0",
+                        "scan_range": "10.0.0.0/24",
+                        "network_id": "eth0|10.0.0.0/24",
+                    }
+                ],
+                "results": results,
+            },
+            kind="inventory",
+        )
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_list_route_paginates(self) -> None:
+        handler = FakeV2Handler(self.store, path="/v2/scans?limit=2&offset=0")
+        v2_api._scans_route(handler, "GET", ["v2", "scans"])
+        self.assertEqual(handler.status, 200)
+        self.assertEqual(len(handler.payload["tasks"]), 2)
+        self.assertEqual(handler.payload["total"], 4)
+        self.assertTrue(handler.payload["has_more"])
+
+    def test_detail_route_paginates_results_and_events(self) -> None:
+        handler = FakeV2Handler(
+            self.store,
+            path="/v2/scans/api-task-detail?result_limit=50&result_offset=0"
+            "&event_limit=50&event_offset=0",
+        )
+        v2_api._scans_route(handler, "GET", ["v2", "scans", "api-task-detail"])
+        self.assertEqual(handler.status, 200)
+        task = handler.payload["task"]
+        self.assertEqual(len(task["results"]), 50)
+        self.assertEqual(task["results_total"], 60)
+        self.assertTrue(task["results_has_more"])
+        self.assertEqual(len(task["events"]), 50)
+        self.assertEqual(task["events_total"], 60)
+        self.assertTrue(task["events_has_more"])
+
+    def test_ping_route_rejects_invalid_input_and_maps_command_errors(self) -> None:
+        stats = {
+            "host": "192.0.2.1",
+            "transmitted": 4,
+            "received": 4,
+            "loss_percent": 0.0,
+            "reachable": True,
+            "min_ms": 0.4,
+            "avg_ms": 1.2,
+            "max_ms": 2.8,
+            "mdev_ms": 0.3,
+        }
+        with mock.patch.object(v2_api, "ping_statistics", return_value=stats):
+            handler = FakeV2Handler(self.store, body={"host": "192.0.2.1", "count": 4})
+            v2_api._analysis_route(handler, "POST")
+        self.assertEqual(handler.status, 200)
+        self.assertTrue(handler.payload["reachable"])
+
+        empty = FakeV2Handler(self.store, body={"host": "", "count": 4})
+        with self.assertRaises(v2_api.V2Error) as caught:
+            v2_api._analysis_route(empty, "POST")
+        self.assertEqual(caught.exception.status, 400)
+
+        bad_count = FakeV2Handler(self.store, body={"host": "192.0.2.1", "count": "x"})
+        with self.assertRaises(v2_api.V2Error) as caught:
+            v2_api._analysis_route(bad_count, "POST")
+        self.assertEqual(caught.exception.status, 400)
+
+        with mock.patch.object(
+            v2_api, "ping_statistics", side_effect=CommandError("系统没有可用的 ping 命令")
+        ):
+            failed = FakeV2Handler(self.store, body={"host": "192.0.2.1"})
+            with self.assertRaises(v2_api.V2Error) as caught:
+                v2_api._analysis_route(failed, "POST")
+        self.assertEqual(caught.exception.status, 503)
+
+    def test_gateway_ping_uses_discovered_default_gateway(self) -> None:
+        with mock.patch.object(v2_api, "discover_networks", return_value=([target()], [])), \
+                mock.patch.object(
+                    v2_api,
+                    "ping_statistics",
+                    return_value={
+                        "host": "10.0.0.1",
+                        "transmitted": 4,
+                        "received": 4,
+                        "loss_percent": 0.0,
+                        "reachable": True,
+                        "min_ms": 0.1,
+                        "avg_ms": 0.2,
+                        "max_ms": 0.3,
+                        "mdev_ms": 0.0,
+                    },
+                ) as ping:
+            handler = FakeV2Handler(self.store, body={"gateway": True, "count": 4})
+            v2_api._analysis_route(handler, "POST")
+        self.assertEqual(handler.status, 200)
+        ping.assert_called_once_with("10.0.0.1", count=4)
 
 
 class OuiTests(unittest.TestCase):

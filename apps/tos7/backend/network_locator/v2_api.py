@@ -56,6 +56,21 @@ def _one(values: Mapping[str, list[str]], key: str, default: str = "") -> str:
     return items[-1] if items else default
 
 
+def _bounded_int(
+    values: Mapping[str, list[str]],
+    key: str,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    raw = _one(values, key, "")
+    try:
+        value = int(raw) if raw != "" else default
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
 def _store(handler: Any) -> Store:
     store = getattr(handler.server, "store", None)
     if store is None:
@@ -558,10 +573,17 @@ def _analysis_route(handler: Any, method: str) -> None:
         return
     if method == "POST":
         body = handler._read_json_body()
-        count = int(body.get("count") or 4)
+        try:
+            count = int(body.get("count") or 4)
+        except (TypeError, ValueError) as exc:
+            raise V2Error(400, "Ping 次数必须是 1 到 20 之间的整数") from exc
+        count = max(1, min(20, count))
         host = str(body.get("host") or "").strip()
         interface = str(body.get("interface") or "").strip()
-        if not host or body.get("gateway"):
+        want_gateway = bool(body.get("gateway"))
+        if not host and not want_gateway:
+            raise V2Error(400, "请输入要测试的 IP 或主机名")
+        if want_gateway:
             targets, warnings = discover_networks()
             target = None
             for candidate in targets:
@@ -589,8 +611,8 @@ def _scans_route(handler: Any, method: str, parts: list[str]) -> None:
     if len(parts) == 2 and method in {"GET", "HEAD"}:
         values = _query(handler)
         result = store.list_tasks(
-            limit=int(_one(values, "limit", "50") or 50),
-            offset=int(_one(values, "offset", "0") or 0),
+            limit=_bounded_int(values, "limit", 50, 1, 200),
+            offset=_bounded_int(values, "offset", 0, 0, 10_000_000),
         )
         handler._send_json(200, {"ok": True, **result}, head_only=method == "HEAD")
         return
@@ -601,7 +623,14 @@ def _scans_route(handler: Any, method: str, parts: list[str]) -> None:
         handler._send_json(200, {"ok": True, "removed": removed})
         return
     if len(parts) == 3 and method in {"GET", "HEAD"}:
-        task = store.get_task(parts[2])
+        values = _query(handler)
+        task = store.get_task(
+            parts[2],
+            result_limit=_bounded_int(values, "result_limit", 50, 1, 500),
+            result_offset=_bounded_int(values, "result_offset", 0, 0, 10_000_000),
+            event_limit=_bounded_int(values, "event_limit", 50, 1, 200),
+            event_offset=_bounded_int(values, "event_offset", 0, 0, 10_000_000),
+        )
         if task is None:
             raise V2Error(404, "扫描任务不存在")
         handler._send_json(200, {"ok": True, "task": task}, head_only=method == "HEAD")
