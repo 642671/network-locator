@@ -704,6 +704,123 @@ class ScanManagerTests(unittest.TestCase):
         self.assertTrue(manager.stop())
         manager.wait(2)
 
+    def test_scan_manager_scan_all_collects_every_neighbor_and_local(self) -> None:
+        target = self._target()
+
+        def sweep(_target, _cancel_event, progress):
+            progress(254)
+            return True
+
+        def neighbors(interface):
+            return [
+                NeighborRecord(interface, "192.0.2.10", "02-42-AC-11-45-6A", "REACHABLE"),
+                NeighborRecord(interface, "192.0.2.11", "4C-A6-4D-4A-00-12", "STALE"),
+            ]
+
+        manager = ScanManager(
+            discover=lambda: ([target], []),
+            neighbors=neighbors,
+            sweep=sweep,
+        )
+        self.assertTrue(manager.start([], scan_all=True))
+        manager.wait(2)
+        status = manager.status()
+        self.assertEqual(status["status"], "completed")
+        self.assertTrue(status["scan_all"])
+        self.assertEqual(status["kind"], "network")
+        self.assertEqual(status["suffixes"], [])
+        self.assertEqual(
+            {item["mac"] for item in status["results"]},
+            {"02-42-AC-11-00-19", "02-42-AC-11-45-6A", "4C-A6-4D-4A-00-12"},
+        )
+        self.assertEqual(
+            [item["state"] for item in status["results"] if item["mac"] == "02-42-AC-11-00-19"],
+            ["LOCAL"],
+        )
+        self.assertTrue(manager.matches_request([], scan_all=True))
+        self.assertFalse(manager.matches_request([], scan_all=False))
+
+    def test_scan_manager_scan_all_stop_keeps_collected_results(self) -> None:
+        first = self._target("enp1s0", "192.0.2.25")
+        second = self._target("enp2s0", "198.51.100.40")
+        started = threading.Event()
+
+        def sweep(target, cancel_event, progress):
+            if target.scan_range == "198.51.100.0/24":
+                started.set()
+                cancel_event.wait(1)
+            progress(target.host_count)
+            return True
+
+        def neighbors(interface):
+            if interface == "enp1s0":
+                return [
+                    NeighborRecord(interface, "192.0.2.10", "02-42-AC-11-45-6A", "REACHABLE")
+                ]
+            return []
+
+        manager = ScanManager(
+            discover=lambda: ([first, second], []),
+            neighbors=neighbors,
+            sweep=sweep,
+        )
+        self.assertTrue(manager.start([], scan_all=True))
+        self.assertTrue(started.wait(1))
+        self.assertTrue(manager.stop())
+        manager.wait(2)
+        status = manager.status()
+        self.assertEqual(status["status"], "stopped")
+        self.assertIn("02-42-AC-11-45-6A", {item["mac"] for item in status["results"]})
+
+    def test_scan_manager_scan_all_single_group_stop_keeps_live_results(self) -> None:
+        target = self._target("enp1s0", "192.0.2.25")
+        progress_called = threading.Event()
+
+        def sweep(_target, cancel_event, progress):
+            progress(8)
+            progress_called.set()
+            cancel_event.wait(1)
+            raise ScanCancelled("scan stopped")
+
+        def neighbors(interface):
+            return [
+                NeighborRecord(interface, "192.0.2.10", "02-42-AC-11-45-6A", "REACHABLE")
+            ]
+
+        manager = ScanManager(
+            discover=lambda: ([target], []),
+            neighbors=neighbors,
+            sweep=sweep,
+        )
+        self.assertTrue(manager.start([], scan_all=True))
+        self.assertTrue(progress_called.wait(1))
+        live = manager.status()
+        self.assertTrue(live["running"])
+        self.assertIn("02-42-AC-11-45-6A", {item["mac"] for item in live["results"]})
+        self.assertTrue(manager.stop())
+        manager.wait(2)
+        status = manager.status()
+        self.assertEqual(status["status"], "stopped")
+        self.assertIn("02-42-AC-11-45-6A", {item["mac"] for item in status["results"]})
+
+    def test_scan_manager_scan_all_sweep_failure_is_error(self) -> None:
+        for error in (TimeoutError("timed out"), PermissionError("denied")):
+            with self.subTest(error=type(error).__name__):
+                def sweep(_target, _cancel_event, _progress, exc=error):
+                    raise exc
+
+                manager = ScanManager(
+                    discover=lambda: ([self._target()], []),
+                    neighbors=lambda interface: [],
+                    sweep=sweep,
+                )
+                self.assertTrue(manager.start([], scan_all=True))
+                manager.wait(2)
+                status = manager.status()
+                self.assertEqual(status["status"], "error")
+                self.assertFalse(status["running"])
+                self.assertIn(str(error), status["error"])
+
     def test_scan_manager_stops(self) -> None:
         started = threading.Event()
 

@@ -5052,6 +5052,9 @@ function bindEvents() {
 }
 
 async function boot() {
+  if (!byId("scanForm")) {
+    return;
+  }
   applyTheme(document.documentElement.getAttribute("data-theme") || "light", false);
   initializePanelLayout();
   bindEvents();
@@ -5191,6 +5194,13 @@ window.NetworkLocatorApp = {
   refreshDevices: refreshDevices,
   apiRequest: apiRequest,
   toast: toast,
+  readSavedMacs: readSavedMacs,
+  persistSavedMacs: persistSavedMacs,
+  sanitizeSavedMac: sanitizeSavedMac,
+  normalizeSuffix: normalizeSuffix,
+  createSavedMacId: createSavedMacId,
+  SAVED_MACS_LIMIT: SAVED_MACS_LIMIT,
+  SAVED_NOTE_LIMIT: SAVED_NOTE_LIMIT,
   formatTime: formatTime,
   stateClass: stateClass,
   stateLabel: stateLabel,

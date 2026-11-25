@@ -16,7 +16,7 @@
 | DeviceAddress | 设备在某个时间使用过的 IP / MAC / 接口 | `device_addresses` 表 |
 | NetworkInterface | 当前 NAS 的物理 IPv4 接口 | 由 `ip -j addr/link/route` 发现，并写入 `network_interfaces` 快照 |
 | NetworkSegment | 接口 + CIDR 网段，例如 `eth0\|192.168.1.0/24` | 由接口地址和前缀计算，并写入 `network_segments` 快照 |
-| ScanTask | 一次 MAC 扫描或设备清单扫描 | `scan_tasks` 表 |
+| ScanTask | 一次 MAC 扫描、设备清单扫描或网络扫描（`kind` = `mac` / `inventory` / `network`） | `scan_tasks` 表 |
 | ScanResult | 一次扫描发现的单条结果 | `scan_results` 表；任务详情优先读该表，旧数据回退任务 JSON |
 | DeviceEvent | 设备首次发现、IP 变化、离线、恢复在线等事件 | `device_events` 表 |
 
@@ -86,7 +86,11 @@
 - 自定义范围与活动网段可以同时提交；当没有选择活动网段时，只扫描
   自定义范围（`custom_only`）。
 - 扫描支持暂停、恢复、停止。暂停状态写入任务快照，恢复后继续未完成的
-  主机探测；停止保留已经产生的结果。
+  主机探测；探测过程中按进度节流收集邻居结果，停止时再强制回填当前网段，
+  因此中途停止也会保留已经发现的结果。
+- 网络扫描（`kind=network`）会为本机接口和该网段全部邻居建立结果；它和
+  设备清单扫描一样，完成后可把未出现的旧设备标记为离线。MAC 后缀扫描
+  （`kind=mac`）只返回匹配项，不改变其他设备的在线状态。
 
 ## 6. 迁移方案
 
@@ -96,8 +100,9 @@ V1 的状态全部在浏览器 `localStorage`：
 
 V2 的处理方式：
 
-1. **不删除、不覆盖旧 `localStorage`**。旧版“网络扫描”页面仍可读取这些
-   数据，避免升级后用户丢记录。
+1. **不删除、不覆盖旧 `localStorage`**。旧版“我的设备”保存的 MAC 后缀
+   与备注由 V2“MAC 定位”页继续读取和写入（同一 `networkLocator.savedMacs.v1`
+   键）；旧网络选择、面板尺寸等键保留但不再使用，避免升级后用户丢记录。
 2. V2 的设备档案从第一次真实设备清单扫描开始建立；扫描结果写入 SQLite。
 3. V1 的 8 条 MAC 记录不会自动映射为 V2 设备，因为 MAC 后缀不是设备
    身份，且可能对应多台设备。用户可在“设备管理”中把对应设备设为收藏

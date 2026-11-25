@@ -135,300 +135,175 @@ class PackageContractTests(unittest.TestCase):
         self.assertEqual(full_bleed.attrib.get("width"), "64")
         self.assertEqual(full_bleed.attrib.get("height"), "64")
 
-    def test_saved_devices_contract(self) -> None:
+    def test_device_inventory_contract(self) -> None:
         html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
-        styles = (ROOT / "frontend" / "styles.css").read_text(encoding="utf-8")
-        self.assertIn('id="savedDevicesPanel"', html)
-        self.assertIn('id="savedDevicesList"', html)
-        self.assertIn('id="savedDeviceDialog"', html)
-        self.assertIn('id="savedMacInput"', html)
-        self.assertIn('id="savedNoteInput"', html)
-        self.assertIn('id="confirmDialog"', html)
-        self.assertIn('id="savedDevicesLoadingRow"', html)
-        self.assertIn('id="savedDevicesRefreshText"', html)
-        self.assertIn('<h2 id="savedDevicesHeading">我的设备</h2>', html)
-        self.assertIn('class="workspace-header device-table-header"', html)
-        self.assertLess(
-            html.index('id="savedDevicesPanel"'),
-            html.index('id="tableHeading"')
-        )
-        self.assertLess(
-            html.index('id="tableHeading"'),
-            html.index('class="results-surface"')
-        )
-        self.assertIn("width: max-content", styles)
-        self.assertIn(".spinner", styles)
-        self.assertIn("progress-slide", styles)
-        self.assertIn("networkLocator.savedMacs.v1", script)
-        self.assertIn("SAVED_MACS_LIMIT = 8", script)
-        self.assertIn("SAVED_NOTE_LIMIT = 100", script)
-        self.assertIn("row-select", script)
-        self.assertIn("row-action", script)
-        self.assertIn("stateLabel", script)
-        self.assertIn('id="networkScopeChips"', html)
-        self.assertIn('class="select-column"', html)
-        self.assertIn('class="actions-column"', html)
-        self.assertIn("saved-device-note", script)
-        self.assertIn("matchSavedMac", script)
-        self.assertIn("mergeSavedMacLastSeen", script)
-        self.assertIn("useSavedForSearch", script)
+        script = (ROOT / "frontend" / "v2-pages.js").read_text(encoding="utf-8")
+        data = (ROOT / "frontend" / "v2-data.js").read_text(encoding="utf-8")
+        styles = (ROOT / "frontend" / "v2-pages.css").read_text(encoding="utf-8")
+        for marker in (
+            'id="v2InvFilters"',
+            'data-favorite-filter="1"',
+            'id="v2InvSearch"',
+            'id="v2InvSort"',
+            'id="v2InvDirection"',
+            'id="v2InvSelectAll"',
+            'id="v2InvBulkFavorite"',
+            'id="v2InvBulkExport"',
+            'id="v2InvExport"',
+            'id="v2InvPager"',
+            'id="v2InvScan"',
+            'id="v2Drawer"',
+            'id="v2DrawerNameInput"',
+            'id="v2DrawerNoteInput"',
+            'id="v2DrawerFavorite"',
+            'id="v2DrawerCopyIp"',
+            'id="v2DrawerCopyMac"',
+            'id="v2DrawerAddresses"',
+            'id="v2DrawerIpHistory"',
+            'id="v2DrawerEvents"',
+            'id="v2MacInput"',
+        ):
+            self.assertIn(marker, html, marker)
+        self.assertLess(html.index('id="v2InvFilters"'), html.index('id="v2InvTableBody"'))
+        self.assertLess(html.index('id="v2InvTableBody"'), html.index('id="v2InvPager"'))
+        self.assertLess(html.index('data-page="dashboard"'), html.index('data-page="inventory"'))
+        combined = script + data
+        for marker in (
+            "limit: 50",
+            "networkLocator.v2.discoveryRanges.v1",
+            "v2/devices/scan",
+            "v2/scan/start",
+            "networklocator:scan-finished",
+            "favorite",
+            "note",
+            "exportDevices",
+        ):
+            self.assertIn(marker, combined, marker)
         self.assertNotIn("innerHTML = entry.note", script)
-        self.assertIn(".saved-devices", styles)
-        self.assertIn(".saved-device-row", styles)
-        self.assertIn(".modal-backdrop", styles)
+        self.assertNotIn("innerHTML = entry.note", (ROOT / "frontend" / "app.js").read_text(encoding="utf-8"))
+        for selector in (
+            ".v2-drawer",
+            ".v2-pager",
+            ".v2-bulk-bar",
+            ".v2-filter-tabs",
+            ".v2-empty-state",
+            ".v2-table-wrap",
+        ):
+            self.assertIn(selector, styles, selector)
+        self.assertIn("textContent", script)
+
+
+    def test_saved_mac_legacy_carryover_contract(self) -> None:
+        html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "frontend" / "v2-pages.js").read_text(encoding="utf-8")
+        app = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+        for marker in (
+            'id="v2SavedMacsCard"',
+            'id="v2SavedMacsCount"',
+            'id="v2SavedMacInput"',
+            'id="v2SavedMacNote"',
+            'id="v2SavedMacAdd"',
+            'id="v2SavedMacsList"',
+            'id="v2SavedMacsEmpty"',
+        ):
+            self.assertIn(marker, html, marker)
+        for marker in ("readSavedMacs", "persistSavedMacs", "renderSavedMacs"):
+            self.assertIn(marker, script, marker)
+        self.assertIn("networkLocator.savedMacs.v1", app)
+        self.assertIn("SAVED_MACS_LIMIT = 8", app)
 
     def test_ui_contract(self) -> None:
         html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+        script = (ROOT / "frontend" / "v2-pages.js").read_text(encoding="utf-8")
+        data = (ROOT / "frontend" / "v2-data.js").read_text(encoding="utf-8")
         server = (ROOT / "backend" / "network_locator" / "server.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn('id="themeToggle"', html)
-        self.assertIn('id="copyIpButton"', html)
-        self.assertIn('placeholder="AA-BB / AA:BB / AABB"', html)
-        self.assertIn('aria-invalid="false"', html)
-        self.assertNotIn('maxlength="5"', html)
-        self.assertNotIn('id="inputHint"', html)
-        self.assertIn('id="sidebarResizer"', html)
-        self.assertIn('id="networkResizer"', html)
-        self.assertIn('role="separator"', html)
-        self.assertIn('id="tableFilter"', html)
-        self.assertIn('data-sort-key="ip"', html)
+        v2_api = (ROOT / "backend" / "network_locator" / "v2_api.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('id="v2ThemeToggle"', html)
         self.assertIn("window.parent.localStorage.getItem(\"themeMode\")", html)
-        self.assertIn("networkLocator.searchIntent.v1", script)
-        self.assertIn("networkLocator.networkSelection.v1", script)
-        self.assertIn("networkLocator.networkCache.v1", script)
-        self.assertIn("networkLocator.deviceCache.v1", script)
-        self.assertIn("verifyCachedNetworks", script)
-        self.assertIn("networkVerifying", script)
-        self.assertIn("NETWORK_FRESHNESS_MS", script)
-        self.assertIn("roundInterrupted", script)
-        self.assertNotIn("shell.appendChild(remove)", script)
-        self.assertIn("mac-copy", script)
-        self.assertIn("macButton.className = \"mac-copy\"", script)
-        styles = (ROOT / "frontend" / "styles.css").read_text(encoding="utf-8")
-        self.assertNotIn(".suffix-input-list.is-multiple", styles)
-        self.assertIn(".mac-copy", styles)
-        self.assertNotIn(".window-resize-grip", styles)
-        self.assertIn(".resize-safety-corner", styles)
-        self.assertIn("--accent: #2563EB", styles)
-        self.assertNotIn("window-resize-grip", html)
-        self.assertIn("resize-safety-corner", html)
-        self.assertIn(".field-label-row", styles)
-        self.assertIn("scrollbar-gutter: stable", styles)
-        self.assertNotRegex(
-            styles,
-            r"\.field-label-row\s*\{[^}]*position:\s*sticky",
-        )
-        self.assertNotRegex(
-            styles,
-            r"\.field-label-row\s*\{[^}]*background:",
-        )
-        self.assertRegex(
-            styles,
-            r"\.results-table th\s*\{[^}]*var\(--surface-solid\)",
-        )
-        self.assertRegex(
-            styles,
-            r"\.results-table th\s*\{[^}]*background:\s*#f1f5f9\s*;",
-        )
-        self.assertRegex(
-            styles,
-            r'html\[data-theme="dark"\] \.results-table th\s*\{[^}]*background:\s*#1e293b\s*;',
-        )
-        self.assertNotRegex(
-            styles,
-            r"\.results-table th\s*\{[^}]*background:\s*rgba\(",
-        )
-        self.assertNotRegex(
-            styles,
-            r'html\[data-theme="dark"\] \.results-table th\s*\{[^}]*background:\s*rgba\(',
-        )
-        self.assertRegex(styles, r"--window-frame:\s*0")
-        self.assertRegex(styles, r"--page-bg:\s*#ffffff")
-        self.assertRegex(
-            styles,
-            r"\.window-titlebar\s*\{[^}]*left:\s*0",
-        )
-        self.assertRegex(
-            styles,
-            r"body\s*\{[^}]*width:\s*100%",
-        )
-        for block in re.findall(r"\.window-titlebar\s*\{([^}]*)\}", styles):
-            top = re.search(r"^\s*top:\s*([^;]+);", block, re.M)
-            if top:
-                self.assertEqual(top.group(1).strip(), "0")
-            right = re.search(r"^\s*right:\s*([^;]+);", block, re.M)
-            if right:
-                self.assertEqual(right.group(1).strip(), "0")
-            left = re.search(r"^\s*left:\s*([^;]+);", block, re.M)
-            if left:
-                self.assertEqual(left.group(1).strip(), "0")
-        self.assertRegex(
-            styles,
-            r"\.section-heading h1\s*\{[^}]*font-size:\s*13px",
-        )
-        self.assertRegex(
-            styles,
-            r"\.section-heading h1\s*\{[^}]*font-weight:\s*650",
-        )
-        self.assertRegex(
-            styles,
-            r"\.workspace-heading h2\s*\{[^}]*font-size:\s*12px",
-        )
-        self.assertRegex(
-            styles,
-            r"\.workspace-heading h2\s*\{[^}]*font-weight:\s*650",
-        )
-        def last_heading_decl(selector: str, prop: str) -> str:
-            values = []
-            for block in re.findall(rf"{selector}\s*\{{([^}}]*)\}}", styles):
-                values.extend(
-                    value.strip()
-                    for value in re.findall(rf"{prop}:\s*([^;]+);", block)
-                )
-            self.assertTrue(values, selector + " " + prop)
-            return values[-1]
-
-        self.assertEqual(last_heading_decl(r"\.section-heading h1", "font-size"), "13px")
-        self.assertEqual(last_heading_decl(r"\.section-heading h1", "font-weight"), "650")
-        self.assertEqual(last_heading_decl(r"\.workspace-heading h2", "font-size"), "12px")
-        self.assertEqual(last_heading_decl(r"\.workspace-heading h2", "font-weight"), "650")
-        self.assertIn('id="selectAllNetworksButton"', html)
-        self.assertIn("network_ids", script)
-        self.assertIn("network_ids", server)
-        self.assertIn("resumeContinuousSearch", script)
-        self.assertIn("REQUEST_TIMEOUT_MS", script)
-        self.assertIn("INVENTORY_REQUEST_TIMEOUT_MS", script)
-        self.assertIn("devices/scan", script)
-        self.assertIn("inventoryScanning", script)
-        self.assertIn('["devices", "scan"]', server)
-        self.assertIn('"devices/scan"', server)
-        self.assertIn("setInputInvalidState", script)
-        self.assertIn("filterTableRows", script)
-        self.assertIn("sortTableRows", script)
-        self.assertIn("tableFilterSummary", script)
-        self.assertIn("var MIN_WORKSPACE_WIDTH = 560", script)
-        self.assertIn("var MIN_NETWORK_PANE_HEIGHT = 200", script)
-        self.assertIn("当前没有搜索到", script)
-        self.assertIn("var MAX_NO_MATCH_ROUNDS = 10", script)
-        self.assertIn("轮询查找结束", script)
-        self.assertIn("最终没有找到", script)
-        self.assertIn("deviceWebUrl", script)
-        self.assertIn('target = "_blank"', script)
-        self.assertIn('rel = "noopener noreferrer"', script)
-        self.assertIn('id="suffixInputList"', html)
-        self.assertIn('id="addSuffixButton"', html)
-        self.assertLess(
-            html.index('id="addSuffixButton"'),
-            html.index('id="suffixInputList"')
-        )
-        self.assertIn('class="section-title-row"', html)
-        self.assertIn(".section-title-row", styles)
-        self.assertIn("var DEFAULT_SCAN_PANE_HEIGHT = 340", script)
-        self.assertIn('id="targetSummary"', html)
-        self.assertIn("var MAX_SUFFIX_INPUTS = 8", script)
-        self.assertIn("matched_suffixes", script)
+        self.assertIn('data-route="dashboard"', html)
+        self.assertIn('data-route="discovery"', html)
+        self.assertIn('data-route="inventory"', html)
+        self.assertIn('data-route="mac-lookup"', html)
+        self.assertIn('data-route="analysis"', html)
+        self.assertIn('data-route="history"', html)
+        self.assertIn('data-route="settings"', html)
+        self.assertIn('id="v2NavVersion"', html)
+        self.assertIn('id="v2Drawer"', html)
+        self.assertIn('id="v2DiscProgressTrack"', html)
+        self.assertIn('id="v2DiscCustom"', html)
+        self.assertIn('id="v2DiscPause"', html)
+        self.assertIn('id="v2DiscStop"', html)
+        self.assertIn('id="v2InvBulkFavorite"', html)
+        self.assertIn('id="v2InvBulkExport"', html)
+        self.assertIn("networkLocator.theme.v1", html)
+        self.assertIn("v2/scan/pause", data)
+        self.assertIn("v2/scan/resume", data)
+        self.assertIn("v2/scan/stop", data)
+        self.assertIn("v2/devices", data)
+        self.assertIn("buildDeviceCsv", data)
+        self.assertIn("buildResultCsv", data)
+        self.assertIn("limit: 50", script)
+        self.assertIn("networklocator:scan-finished", script)
+        self.assertNotIn("Mock", script)
+        self.assertNotIn("mockDevices", script)
+        self.assertIn("network-scan", v2_api)
+        self.assertIn("devices/scan", server)
         self.assertIn("normalize_mac_suffixes", server)
         self.assertIn("suffixes", server)
         titlebar = html.split('class="titlebar-actions"', 1)[1].split("</header>", 1)[0]
         self.assertNotIn('id="themeToggle"', titlebar)
+        self.assertNotIn('id="v2ThemeToggle"', titlebar)
+        styles = (ROOT / "frontend" / "styles.css").read_text(encoding="utf-8")
+        shell = (ROOT / "frontend" / "v2-shell.css").read_text(encoding="utf-8")
+        self.assertIn("--accent: #2563EB", styles)
+        self.assertIn("scrollbar-gutter: stable", styles)
+        self.assertIn("--titlebar-height: 41px", styles)
+        self.assertIn("--window-frame: 0", styles)
+        self.assertIn("--page-bg: #ffffff", styles)
+        self.assertIn(".resize-safety-corner", styles)
+        self.assertNotIn(".window-resize-grip", styles)
+        self.assertIn(".v2-nav", shell)
+        self.assertIn(".v2-main", shell)
+        self.assertIn(".v2-toolbar", shell)
+        self.assertIn("min-width: 0", shell)
+        self.assertIn(".v2-page", shell)
+
 
     def test_default_window_layout_contract(self) -> None:
         config = json.loads((ROOT / "config.ini").read_text(encoding="utf-8"))
         styles = (ROOT / "frontend" / "styles.css").read_text(encoding="utf-8")
-        script = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
-        html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
+        tokens = (ROOT / "frontend" / "v2-tokens.css").read_text(encoding="utf-8")
+        shell = (ROOT / "frontend" / "v2-shell.css").read_text(encoding="utf-8")
+        pages = (ROOT / "frontend" / "v2-pages.css").read_text(encoding="utf-8")
         self.assertEqual(config["width"], 1180)
         self.assertEqual(config["height"], 720)
         self.assertTrue(config["resize"])
         self.assertTrue(config["maxmin"])
         self.assertRegex(styles, r"@media\s*\(\s*max-width:\s*980px\s*\)")
         self.assertNotRegex(styles, r"@media\s*\(\s*max-width:\s*1040px\s*\)")
-        # The 1180x720 default leaves a 684px discovery workspace after the
-        # 210px global navigation, 280px page-local control column and 6px
-        # resizer, so the full table with per-row actions still fits.
-        self.assertEqual(config["width"], 1180)
-        self.assertIn("var WORKSPACE_NARROW_MAX_WIDTH = 680", script)
-        self.assertIn(
-            "width > 0 && width < WORKSPACE_NARROW_MAX_WIDTH",
-            script,
-        )
-        self.assertNotIn("width < 780", script)
-        default_nav = 210
-        default_sidebar = 280
-        resizer = 6
-        min_workspace = 560
-        workspace = max(
-            min_workspace,
-            int(config["width"]) - default_nav - resizer - default_sidebar,
-        )
-        self.assertEqual(workspace, 684)
-        self.assertGreaterEqual(workspace, 680)
-        self.assertRegex(
-            styles,
-            r"\.workspace\.is-narrow \.results-table\s*\{[^}]*min-width:\s*0",
-        )
-        self.assertRegex(
-            styles,
-            r"\.workspace\.is-narrow \.results-table th\.actions-column",
-        )
-        self.assertRegex(
-            styles,
-            r"\.workspace\.is-narrow \.results-table td\.actions-cell",
-        )
-        self.assertIn('class="network-column"', html)
-        self.assertIn('data-sort-key="interface"', html)
-        self.assertLess(
-            html.index('class="network-column"'),
-            html.index('data-sort-key="ip"'),
-        )
-        self.assertIn("network-cell", script)
-        self.assertIn("result.interface || \"--\"", script)
-        self.assertRegex(
-            styles,
-            r"\.results-table th\.network-column\s*\{[^}]*width:\s*\d+%",
-        )
-
-        def last_decl(selector: str, prop: str) -> str:
-            values = []
-            for block in re.findall(rf"{selector}\s*\{{([^}}]*)\}}", styles):
-                values.extend(
-                    value.strip()
-                    for value in re.findall(rf"{prop}:\s*([^;]+);", block)
-                )
-            self.assertTrue(values, selector + " " + prop)
-            return values[-1]
-
-        self.assertEqual(last_decl(r"\.workspace-header", "flex-shrink"), "0")
-        header_shrink = [
-            block
-            for block in re.findall(r"\.workspace-header\s*\{([^}]*)\}", styles)
-            if re.search(r"flex-shrink:\s*0", block)
-        ]
-        self.assertGreaterEqual(len(header_shrink), 3)
-        self.assertIsNone(re.search(r"\.table-filter\s*\{[^}]*flex-basis:\s*340px", styles))
-        self.assertRegex(
-            styles,
-            r"\.table-filter\s*\{[^}]*flex:\s*1 1 220px",
-        )
-        self.assertRegex(
-            styles,
-            r"\.table-filter\s*\{[^}]*min-width:\s*0",
-        )
-        self.assertRegex(
-            styles,
-            r"\.workspace\.is-narrow \.table-filter\s*\{[^}]*flex:\s*1 1 200px",
-        )
-        self.assertRegex(
-            styles,
-            r"\.table-toolbar\s*\{[^}]*flex-wrap:\s*wrap",
-        )
-        self.assertRegex(
-            styles,
-            r"\.workspace\.is-narrow \.table-toolbar\s*\{[^}]*flex-wrap:\s*wrap",
-        )
+        self.assertIn("--v2-nav-width: 210px", tokens)
+        self.assertIn("--v2-toolbar-height: 60px", tokens)
+        self.assertIn("--v2-page-padding: 24px", tokens)
+        self.assertIn("--v2-drawer-width: 440px", tokens)
+        self.assertIn("grid-template-columns: minmax(280px, 0.82fr) minmax(0, 1.6fr)", pages)
+        self.assertRegex(pages, r"@media\s*\(\s*max-width:\s*1100px\s*\)")
+        self.assertRegex(pages, r"@media\s*\(\s*max-width:\s*820px\s*\)")
+        self.assertRegex(pages, r"@media\s*\(\s*max-width:\s*620px\s*\)")
+        self.assertIn(".v2-page--discovery", pages)
+        self.assertIn("overflow-y: auto", pages)
+        self.assertIn("overflow-x: auto", pages)
+        self.assertIn(".v2-table-wrap", pages)
+        self.assertIn("min-width: 0", pages)
+        self.assertIn("min-width: 560px", pages)
+        self.assertIn(".v2-frame", shell)
+        self.assertIn("height: calc(100vh - var(--titlebar-height))", shell)
+        self.assertIn("flex: 0 0 var(--v2-nav-width)", shell)
+        self.assertIn(".v2-page", shell)
+        self.assertIn("width: 100%", styles)
 
 
 

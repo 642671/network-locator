@@ -40,6 +40,21 @@
       last: null,
       batch: false
     },
+    discovery: {
+      networks: [],
+      networkWarnings: [],
+      selected: {},
+      selectionTouched: false,
+      customRanges: [],
+      status: null,
+      results: [],
+      offset: 0,
+      limit: 50,
+      loading: false,
+      token: 0,
+      pollTimer: null,
+      error: ""
+    },
     analysis: null,
     history: {
       tasks: [],
@@ -534,6 +549,9 @@
     if (route === "dashboard") {
       return loadDashboard();
     }
+    if (route === "discovery") {
+      return loadDiscovery();
+    }
     if (route === "inventory") {
       return loadInventory();
     }
@@ -547,6 +565,599 @@
       return loadSettings();
     }
     return Promise.resolve();
+  }
+
+  /* --------------------------------------------------------------- discovery */
+
+  var DISCOVERY_RANGES_KEY = "networkLocator.v2.discoveryRanges.v1";
+
+  function readDiscoveryRanges() {
+    try {
+      var raw = root.localStorage && root.localStorage.getItem(DISCOVERY_RANGES_KEY);
+      var parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed)
+        ? parsed.filter(function (item) { return typeof item === "string" && item.trim(); }).slice(0, 10)
+        : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  function persistDiscoveryRanges() {
+    try {
+      if (root.localStorage) {
+        root.localStorage.setItem(DISCOVERY_RANGES_KEY, JSON.stringify(state.discovery.customRanges));
+      }
+    } catch (error) {
+      return;
+    }
+  }
+
+  function discoveryNetworkId(network) {
+    return String((network && network.network_id) || "");
+  }
+
+  function discoverySelectedIds() {
+    return state.discovery.networks.map(discoveryNetworkId).filter(function (id) {
+      return id && state.discovery.selected[id];
+    });
+  }
+
+  function discoveryHasScope() {
+    return discoverySelectedIds().length > 0 || state.discovery.customRanges.length > 0;
+  }
+
+  function discoveryStatusLabel(status) {
+    switch (String(status || "")) {
+      case "discovering": return D.tr("正在识别网段");
+      case "scanning": return D.tr("正在扫描");
+      case "paused": return D.tr("已暂停");
+      case "completed": return D.tr("已完成");
+      case "stopped": return D.tr("已停止");
+      case "error": return D.tr("扫描失败");
+      default: return D.tr("准备就绪");
+    }
+  }
+
+  function discoveryStatusClass(status) {
+    var value = String(status || "idle");
+    if (value === "paused") { return "v2-task-status--stopped"; }
+    if (value === "discovering" || value === "scanning") { return "v2-task-status--running"; }
+    if (value === "completed") { return "v2-task-status--completed"; }
+    if (value === "stopped" || value === "error") { return "v2-task-status--" + value; }
+    return "";
+  }
+
+  function updateDiscoveryScopeSummary() {
+    var selected = discoverySelectedIds();
+    var networks = state.discovery.networks.length;
+    var ranges = state.discovery.customRanges.length;
+    var text;
+    if (!networks && !ranges) {
+      text = D.tr("没有可扫描的物理网段。");
+    } else if (!selected.length && ranges) {
+      text = D.tr("仅扫描 ") + D.countUnit(ranges, " 个自定义范围", "custom range", "custom ranges");
+    } else {
+      text = D.tr("已选择 ") + selected.length + " / " + networks + D.tr(" 个活动网段");
+      if (ranges) {
+        text += " · " + D.countUnit(ranges, " 个自定义范围", "custom range", "custom ranges");
+      }
+    }
+    D.setText("v2DiscSummary", text);
+  }
+
+  function renderDiscoveryWarnings() {
+    var box = doc("v2DiscWarnings");
+    if (!box) {
+      return;
+    }
+    var status = state.discovery.status || {};
+    var warnings = (state.discovery.networkWarnings || []).concat(status.warnings || []);
+    var unique = [];
+    warnings.forEach(function (item) {
+      var text = D.translateMessage(item);
+      if (text && unique.indexOf(text) < 0) {
+        unique.push(text);
+      }
+    });
+    D.clear(box);
+    box.hidden = unique.length === 0;
+    unique.forEach(function (text) {
+      box.appendChild(D.el("p", "", text));
+    });
+  }
+
+  function renderDiscoveryNetworks() {
+    var container = doc("v2DiscNetworks");
+    var empty = doc("v2DiscNetworksEmpty");
+    if (!container) {
+      return;
+    }
+    D.clear(container);
+    var status = state.discovery.status || {};
+    var locked = !!status.running || state.discovery.loading;
+    state.discovery.networks.forEach(function (network) {
+      var id = discoveryNetworkId(network);
+      var selected = !!state.discovery.selected[id];
+      var item = D.el("label", "v2-network-item" + (selected ? " is-selected" : "") + (locked ? " is-locked" : ""));
+      var input = D.el("input", "v2-network-check");
+      input.type = "checkbox";
+      input.checked = selected;
+      input.disabled = locked;
+      input.setAttribute("data-network-id", id);
+      input.addEventListener("change", function () {
+        state.discovery.selected[id] = input.checked;
+        state.discovery.selectionTouched = true;
+        renderDiscoveryNetworks();
+        updateDiscoveryScopeSummary();
+        updateDiscoveryControls();
+      });
+      item.appendChild(input);
+      var main = D.el("div", "v2-network-main");
+      main.appendChild(D.el("strong", "", network.interface || "--"));
+      var detail = String(network.local_ip || "--") + "/" + String(network.prefix_length || "--");
+      detail += " · " + D.tr("网关 ") + (network.gateway || "--");
+      main.appendChild(D.el("span", "v2-subtle", detail));
+      item.appendChild(main);
+      var meta = D.el("div", "v2-network-meta");
+      meta.appendChild(D.el("code", "", network.scan_range || "--"));
+      meta.appendChild(D.el("span", "v2-count", String(network.host_count || 0)));
+      item.appendChild(meta);
+      container.appendChild(item);
+    });
+    if (empty) {
+      empty.hidden = state.discovery.networks.length > 0;
+    }
+  }
+
+  function renderDiscoveryRanges() {
+    var container = doc("v2DiscRanges");
+    if (!container) {
+      return;
+    }
+    D.clear(container);
+    container.hidden = state.discovery.customRanges.length === 0;
+    state.discovery.customRanges.forEach(function (value) {
+      var chip = D.el("span", "v2-chip");
+      chip.appendChild(document.createTextNode(value));
+      var remove = D.el("button", "v2-chip-remove", "×");
+      remove.type = "button";
+      remove.title = D.tr("移除自定义范围");
+      remove.setAttribute("aria-label", D.tr("移除自定义范围") + " " + value);
+      remove.addEventListener("click", function () {
+        state.discovery.customRanges = state.discovery.customRanges.filter(function (item) {
+          return item !== value;
+        });
+        persistDiscoveryRanges();
+        renderDiscoveryRanges();
+        updateDiscoveryScopeSummary();
+        updateDiscoveryControls();
+      });
+      chip.appendChild(remove);
+      container.appendChild(chip);
+    });
+  }
+
+  function updateDiscoveryControls() {
+    var status = state.discovery.status || {};
+    var running = !!status.running;
+    var paused = !!status.paused;
+    var stopping = !!status.stopping;
+    var loading = !!state.discovery.loading;
+    var hasScope = discoveryHasScope();
+    var start = doc("v2DiscStart");
+    var refresh = doc("v2DiscRefresh");
+    var pause = doc("v2DiscPause");
+    var stop = doc("v2DiscStop");
+    var exportButton = doc("v2DiscExport");
+    var addRange = doc("v2DiscAddRange");
+    var rangeInput = doc("v2DiscCustom");
+    var all = doc("v2DiscAll");
+    var none = doc("v2DiscNone");
+    if (start) { start.disabled = running || loading || !hasScope; }
+    if (refresh) { refresh.disabled = loading; }
+    if (pause) {
+      pause.disabled = !running || stopping;
+      pause.textContent = paused ? D.tr("继续") : D.tr("暂停");
+    }
+    if (stop) { stop.disabled = !running || stopping; }
+    if (exportButton) { exportButton.disabled = !state.discovery.results.length; }
+    if (addRange) { addRange.disabled = running || loading || state.discovery.customRanges.length >= 10; }
+    if (rangeInput) { rangeInput.disabled = running || loading; }
+    if (all) { all.disabled = running || loading || !state.discovery.networks.length; }
+    if (none) { none.disabled = running || loading || !state.discovery.networks.length; }
+  }
+
+  function discoveryPagerInfo(offset, count, total) {
+    var page = Math.floor(offset / Math.max(1, state.discovery.limit)) + 1;
+    var start = total ? offset + 1 : 0;
+    return D.tr("第") + " " + page + D.tr(" 页") + " · " + start + "–" + (offset + count) + " / " + total;
+  }
+
+  function renderDiscoveryResults() {
+    var tbody = doc("v2DiscTableBody");
+    var empty = doc("v2DiscResultsEmpty");
+    var pager = doc("v2DiscPager");
+    var info = doc("v2DiscPagerInfo");
+    var prev = doc("v2DiscPrev");
+    var next = doc("v2DiscNext");
+    if (!tbody) {
+      return;
+    }
+    var results = state.discovery.results || [];
+    if (state.discovery.offset >= results.length && state.discovery.offset > 0) {
+      state.discovery.offset = Math.max(0, Math.floor((results.length - 1) / state.discovery.limit) * state.discovery.limit);
+    }
+    var visible = results.slice(state.discovery.offset, state.discovery.offset + state.discovery.limit);
+    D.clear(tbody);
+    visible.forEach(function (item) {
+      var row = D.el("tr");
+      var ipCell = D.el("td");
+      var ipLine = D.el("div", "v2-copy-line");
+      ipLine.appendChild(D.el("code", "", item.ip || "--"));
+      if (item.ip) {
+        ipLine.appendChild(makeCopyButton(item.ip, "IP"));
+      }
+      ipCell.appendChild(ipLine);
+      row.appendChild(ipCell);
+      var macCell = D.el("td");
+      var macLine = D.el("div", "v2-copy-line");
+      macLine.appendChild(D.el("code", "", item.mac || "--"));
+      if (item.mac) {
+        macLine.appendChild(makeCopyButton(item.mac, "MAC"));
+      }
+      macCell.appendChild(macLine);
+      row.appendChild(macCell);
+      row.appendChild(D.el("td", "", item.interface || "--"));
+      row.appendChild(D.el("td", "", item.scan_range || item.network_id || "--"));
+      row.appendChild(D.el("td", "", D.stateLabel(item.state) || item.state || "--"));
+      tbody.appendChild(row);
+    });
+    if (empty) {
+      empty.hidden = visible.length > 0;
+      var status = state.discovery.status || {};
+      if (status.running) {
+        empty.textContent = D.tr("正在探测主机，结果会实时显示。");
+      } else if (String(status.status || "") === "completed") {
+        empty.textContent = D.tr("扫描完成，未发现设备。");
+      } else if (String(status.status || "") === "error") {
+        empty.textContent = D.tr("扫描失败，没有可用结果。");
+      } else {
+        empty.textContent = D.tr("扫描结果会实时显示在这里。");
+      }
+    }
+    if (pager) {
+      pager.hidden = results.length <= state.discovery.limit;
+    }
+    if (info) {
+      info.textContent = discoveryPagerInfo(state.discovery.offset, visible.length, results.length);
+    }
+    if (prev) { prev.disabled = state.discovery.offset <= 0; }
+    if (next) { next.disabled = state.discovery.offset + visible.length >= results.length; }
+  }
+
+  function applyDiscoveryStatus(status) {
+    var previous = state.discovery.status || {};
+    var wasRunning = !!previous.running;
+    state.discovery.status = status || {};
+    state.discovery.results = Array.isArray(status && status.results) ? status.results : [];
+    state.discovery.loading = false;
+    var badge = doc("v2DiscStatus");
+    if (badge) {
+      var taskStatus = String((status && status.status) || "idle");
+      badge.textContent = discoveryStatusLabel(taskStatus);
+      badge.className = "v2-task-status " + discoveryStatusClass(taskStatus);
+    }
+    var percent = Math.max(0, Math.min(100, Number(status && status.progress_percent) || 0));
+    var value = doc("v2DiscProgressValue");
+    var bar = doc("v2DiscProgressBar");
+    var track = doc("v2DiscProgressTrack");
+    if (value) { value.textContent = percent + "%"; }
+    if (bar) { bar.style.width = percent + "%"; }
+    if (track) { track.setAttribute("aria-valuenow", String(percent)); }
+    var probed = Number(status && status.probed_hosts) || 0;
+    var total = Number(status && status.total_hosts) || 0;
+    D.setText("v2DiscHosts", D.tr("探测主机 ") + probed + " / " + total);
+    var range = status && status.current_interface
+      ? status.current_interface + " · " + (status.current_range || "--")
+      : D.tr("尚未选择网段");
+    D.setText("v2DiscCurrentRange", range);
+    var errorBox = doc("v2DiscError");
+    if (errorBox) {
+      var errorText = status && status.error ? D.translateMessage(status.error) : (state.discovery.error || "");
+      errorBox.hidden = !errorText;
+      errorBox.textContent = errorText;
+    }
+    var loading = doc("v2DiscResultsLoading");
+    if (loading) { loading.hidden = true; }
+    renderDiscoveryWarnings();
+    renderDiscoveryResults();
+    updateDiscoveryScopeSummary();
+    updateDiscoveryControls();
+    if (wasRunning && !(status && status.running)) {
+      document.dispatchEvent(new CustomEvent("networklocator:scan-finished", {
+        detail: { status: status && status.status, results: state.discovery.results.length }
+      }));
+    }
+  }
+
+  async function refreshDiscoveryNetworks() {
+    var token = ++state.discovery.token;
+    state.discovery.loading = true;
+    updateDiscoveryControls();
+    try {
+      var payload = await D.API.networks();
+      if (token !== state.discovery.token) { return; }
+      state.discovery.networks = Array.isArray(payload.networks) ? payload.networks : [];
+      state.discovery.networkWarnings = Array.isArray(payload.warnings) ? payload.warnings : [];
+      var available = {};
+      state.discovery.networks.forEach(function (network) {
+        available[discoveryNetworkId(network)] = true;
+      });
+      var nextSelected = {};
+      Object.keys(state.discovery.selected).forEach(function (id) {
+        if (available[id]) { nextSelected[id] = true; }
+      });
+      if (!state.discovery.selectionTouched) {
+        state.discovery.networks.forEach(function (network) {
+          nextSelected[discoveryNetworkId(network)] = true;
+        });
+      }
+      state.discovery.selected = nextSelected;
+      renderDiscoveryNetworks();
+      renderDiscoveryWarnings();
+      updateDiscoveryScopeSummary();
+    } catch (error) {
+      state.discovery.error = error.message || D.tr("读取网络环境失败");
+      renderDiscoveryWarnings();
+      var box = doc("v2DiscError");
+      if (box) {
+        box.hidden = false;
+        box.textContent = D.translateMessage(state.discovery.error);
+      }
+      D.toast(state.discovery.error, true);
+    } finally {
+      if (token === state.discovery.token) {
+        state.discovery.loading = false;
+        renderDiscoveryNetworks();
+        updateDiscoveryControls();
+      }
+    }
+  }
+
+  function scheduleDiscoveryPoll(delay) {
+    if (state.discovery.pollTimer) {
+      root.clearTimeout(state.discovery.pollTimer);
+    }
+    state.discovery.pollTimer = root.setTimeout(pollDiscoveryStatus, delay || 650);
+  }
+
+  async function pollDiscoveryStatus() {
+    state.discovery.pollTimer = null;
+    try {
+      var status = await D.API.scanStatus();
+      state.discovery.error = "";
+      applyDiscoveryStatus(status);
+      if (status && status.running) {
+        scheduleDiscoveryPoll(700);
+      }
+    } catch (error) {
+      state.discovery.error = error.message || D.tr("读取扫描状态失败");
+      var box = doc("v2DiscError");
+      if (box) {
+        box.hidden = false;
+        box.textContent = D.translateMessage(state.discovery.error);
+      }
+      updateDiscoveryControls();
+      if (state.discovery.status && state.discovery.status.running) {
+        scheduleDiscoveryPoll(1800);
+      }
+    }
+  }
+
+  async function loadDiscovery() {
+    state.discovery.customRanges = readDiscoveryRanges();
+    renderDiscoveryRanges();
+    var loading = doc("v2DiscResultsLoading");
+    if (loading) { loading.hidden = false; }
+    await refreshDiscoveryNetworks();
+    try {
+      var status = await D.API.scanStatus();
+      if (status && (status.selected_network_ids || []).length) {
+        var selected = {};
+        status.selected_network_ids.forEach(function (id) { selected[id] = true; });
+        state.discovery.selected = selected;
+        renderDiscoveryNetworks();
+      }
+      if (status && Array.isArray(status.custom_ranges) && status.custom_ranges.length) {
+        state.discovery.customRanges = status.custom_ranges.slice();
+        renderDiscoveryRanges();
+      }
+      applyDiscoveryStatus(status);
+      if (status && status.running) {
+        scheduleDiscoveryPoll(350);
+      }
+    } catch (error) {
+      state.discovery.loading = false;
+      if (loading) { loading.hidden = true; }
+      state.discovery.error = error.message || D.tr("读取扫描状态失败");
+      var box = doc("v2DiscError");
+      if (box) {
+        box.hidden = false;
+        box.textContent = D.translateMessage(state.discovery.error);
+      }
+      D.toast(state.discovery.error, true);
+    }
+  }
+
+  async function runDiscoveryScan() {
+    if (state.discovery.status && state.discovery.status.running) {
+      return;
+    }
+    if (!discoveryHasScope()) {
+      D.toast(D.tr("请至少选择一个活动网段或添加自定义范围。"), true);
+      return;
+    }
+    var selected = discoverySelectedIds();
+    var ranges = state.discovery.customRanges.slice();
+    var customOnly = ranges.length > 0 && selected.length === 0;
+    state.discovery.results = [];
+    state.discovery.offset = 0;
+    state.discovery.error = "";
+    renderDiscoveryResults();
+    updateDiscoveryControls();
+    try {
+      await D.API.scanStart({
+        scan_all: true,
+        network_ids: customOnly ? [] : selected,
+        custom_ranges: ranges,
+        custom_only: customOnly
+      });
+      D.toast(D.tr("扫描已启动，关闭页面后任务仍会继续。"), false);
+      await pollDiscoveryStatus();
+      scheduleDiscoveryPoll(350);
+    } catch (error) {
+      state.discovery.error = error.message || D.tr("扫描启动失败");
+      var box = doc("v2DiscError");
+      if (box) {
+        box.hidden = false;
+        box.textContent = D.translateMessage(state.discovery.error);
+      }
+      D.toast(D.translateMessage(state.discovery.error), true);
+    }
+  }
+
+  async function toggleDiscoveryPause() {
+    var status = state.discovery.status || {};
+    if (!status.running) {
+      return;
+    }
+    try {
+      if (status.paused) {
+        await D.API.scanResume();
+        D.toast(D.tr("扫描已继续。"), false);
+      } else {
+        await D.API.scanPause();
+        D.toast(D.tr("扫描已暂停。"), false);
+      }
+      await pollDiscoveryStatus();
+      scheduleDiscoveryPoll(350);
+    } catch (error) {
+      D.toast(D.translateMessage(error.message || D.tr("操作失败")), true);
+    }
+  }
+
+  async function stopDiscoveryScan() {
+    var status = state.discovery.status || {};
+    if (!status.running) {
+      return;
+    }
+    try {
+      await D.API.scanStop();
+      D.toast(D.tr("正在停止扫描，已发现的结果会保留。"), false);
+      await pollDiscoveryStatus();
+      scheduleDiscoveryPoll(300);
+    } catch (error) {
+      D.toast(D.translateMessage(error.message || D.tr("停止失败")), true);
+    }
+  }
+
+  function addDiscoveryRange() {
+    var input = doc("v2DiscCustom");
+    if (!input) {
+      return;
+    }
+    var value = String(input.value || "").trim();
+    if (!value) {
+      return;
+    }
+    if (state.discovery.customRanges.indexOf(value) >= 0) {
+      input.value = "";
+      return;
+    }
+    if (state.discovery.customRanges.length >= 10) {
+      D.toast(D.tr("最多添加 10 个自定义范围"), true);
+      return;
+    }
+    state.discovery.customRanges.push(value);
+    persistDiscoveryRanges();
+    input.value = "";
+    renderDiscoveryRanges();
+    updateDiscoveryScopeSummary();
+    updateDiscoveryControls();
+  }
+
+  function exportDiscoveryResults() {
+    if (!state.discovery.results.length) {
+      D.toast(D.tr("没有可导出的扫描结果。"), true);
+      return;
+    }
+    D.exportResults(state.discovery.results, appSettings(), "network-locator-scan");
+    D.toast(D.tr("已导出扫描结果 CSV"), false);
+  }
+
+  function bindDiscovery() {
+    var start = doc("v2DiscStart");
+    if (start) { start.addEventListener("click", runDiscoveryScan); }
+    var refresh = doc("v2DiscRefresh");
+    if (refresh) {
+      refresh.addEventListener("click", function () {
+        refreshDiscoveryNetworks();
+      });
+    }
+    var pause = doc("v2DiscPause");
+    if (pause) { pause.addEventListener("click", toggleDiscoveryPause); }
+    var stop = doc("v2DiscStop");
+    if (stop) { stop.addEventListener("click", stopDiscoveryScan); }
+    var exportButton = doc("v2DiscExport");
+    if (exportButton) { exportButton.addEventListener("click", exportDiscoveryResults); }
+    var addRange = doc("v2DiscAddRange");
+    if (addRange) { addRange.addEventListener("click", addDiscoveryRange); }
+    var rangeInput = doc("v2DiscCustom");
+    if (rangeInput) {
+      rangeInput.addEventListener("keydown", function (event) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          addDiscoveryRange();
+        }
+      });
+    }
+    var all = doc("v2DiscAll");
+    if (all) {
+      all.addEventListener("click", function () {
+        state.discovery.networks.forEach(function (network) {
+          state.discovery.selected[discoveryNetworkId(network)] = true;
+        });
+        state.discovery.selectionTouched = true;
+        renderDiscoveryNetworks();
+        updateDiscoveryScopeSummary();
+        updateDiscoveryControls();
+      });
+    }
+    var none = doc("v2DiscNone");
+    if (none) {
+      none.addEventListener("click", function () {
+        state.discovery.selected = {};
+        state.discovery.selectionTouched = true;
+        renderDiscoveryNetworks();
+        updateDiscoveryScopeSummary();
+        updateDiscoveryControls();
+      });
+    }
+    var prev = doc("v2DiscPrev");
+    if (prev) {
+      prev.addEventListener("click", function () {
+        state.discovery.offset = Math.max(0, state.discovery.offset - state.discovery.limit);
+        renderDiscoveryResults();
+      });
+    }
+    var next = doc("v2DiscNext");
+    if (next) {
+      next.addEventListener("click", function () {
+        state.discovery.offset += state.discovery.limit;
+        renderDiscoveryResults();
+      });
+    }
   }
 
   /* ---------------------------------------------------------------- inventory */
@@ -1163,6 +1774,142 @@
       clear.addEventListener("click", clearMacLookup);
     }
   }
+  /* ----------------------------------------------------------- saved MACs */
+
+  function savedMacApi() {
+    return root.NetworkLocatorApp || null;
+  }
+
+  function savedMacCell(label, value) {
+    var cell = D.el("div", "v2-result-cell");
+    cell.appendChild(D.el("span", "", label));
+    cell.appendChild(D.el("strong", "", value || "--"));
+    return cell;
+  }
+
+  function savedMacCard(entry, items) {
+    var api = savedMacApi();
+    var card = D.el("article", "v2-result-card v2-saved-mac-item");
+    var head = D.el("div", "v2-result-head");
+    head.appendChild(D.el("strong", "", entry.display || "--"));
+    head.appendChild(D.el("span", "v2-mini-badge", entry.note ? entry.note : D.tr("未填写用途")));
+    card.appendChild(head);
+    var grid = D.el("div", "v2-result-grid");
+    grid.appendChild(savedMacCell(D.tr("MAC 后缀"), entry.display));
+    grid.appendChild(savedMacCell(D.tr("备注"), entry.note || "--"));
+    grid.appendChild(savedMacCell(D.tr("当前 IP"), entry.lastSeenIp || "--"));
+    grid.appendChild(savedMacCell(
+      D.tr("最后发现"),
+      entry.lastSeenAt ? D.formatTime(new Date(entry.lastSeenAt), false) : D.tr("从未发现")
+    ));
+    card.appendChild(grid);
+    var actions = D.el("div", "v2-inline-actions");
+    var use = D.el("button", "v2-text-button", D.tr("用于查询"));
+    use.type = "button";
+    use.addEventListener("click", function () {
+      var input = doc("v2MacInput");
+      var mode = doc("v2MacMode");
+      if (input) { input.value = entry.display; }
+      if (mode) { mode.value = "suffix"; }
+      runMacSearch();
+    });
+    actions.appendChild(use);
+    var remove = D.el("button", "v2-text-button", D.tr("删除"));
+    remove.type = "button";
+    remove.addEventListener("click", function () {
+      if (root.confirm && !root.confirm(D.tr("确认删除这个 MAC？"))) { return; }
+      var next = items.filter(function (item) { return item.id !== entry.id; });
+      if (api && api.persistSavedMacs) {
+        api.persistSavedMacs(next);
+        renderSavedMacs();
+        D.toast(D.tr("已删除保存的 MAC"), false);
+      }
+    });
+    actions.appendChild(remove);
+    card.appendChild(actions);
+    return card;
+  }
+
+  function renderSavedMacs() {
+    var list = doc("v2SavedMacsList");
+    var empty = doc("v2SavedMacsEmpty");
+    var count = doc("v2SavedMacsCount");
+    var api = savedMacApi();
+    if (!list || !api || typeof api.readSavedMacs !== "function") {
+      return;
+    }
+    var items = api.readSavedMacs() || [];
+    D.clear(list);
+    if (count) {
+      count.textContent = items.length + " / " + (api.SAVED_MACS_LIMIT || 8);
+    }
+    if (empty) {
+      empty.hidden = items.length > 0;
+    }
+    items.forEach(function (entry) {
+      list.appendChild(savedMacCard(entry, items));
+    });
+  }
+
+  function addSavedMacFromForm() {
+    var api = savedMacApi();
+    var input = doc("v2SavedMacInput");
+    var note = doc("v2SavedMacNote");
+    if (!api || typeof api.readSavedMacs !== "function" || !input) {
+      return;
+    }
+    var display = String(input.value || "").trim();
+    var normalized = api.normalizeSuffix(display);
+    if (!normalized) {
+      D.toast(D.tr("请输入 AA-BB、AA:BB 或 AABB 格式的 MAC 后四位。"), true);
+      return;
+    }
+    var items = api.readSavedMacs() || [];
+    if (items.length >= (api.SAVED_MACS_LIMIT || 8)) {
+      D.toast(D.tr("最多保存 ") + (api.SAVED_MACS_LIMIT || 8) + D.tr(" 个 MAC。"), true);
+      return;
+    }
+    if (items.some(function (item) { return item.normalized === normalized; })) {
+      D.toast(D.tr("重复的 MAC 不能保存。"), true);
+      return;
+    }
+    var entry = api.sanitizeSavedMac({
+      display: display,
+      note: note ? note.value : "",
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    });
+    if (!entry) {
+      D.toast(D.tr("请输入 AA-BB、AA:BB 或 AABB 格式的 MAC 后四位。"), true);
+      return;
+    }
+    items.push(entry);
+    if (api.persistSavedMacs(items)) {
+      input.value = "";
+      if (note) { note.value = ""; }
+      renderSavedMacs();
+      D.toast(D.tr("已保存 MAC"), false);
+    }
+  }
+
+  function bindSavedMacs() {
+    var add = doc("v2SavedMacAdd");
+    if (add) {
+      add.addEventListener("click", addSavedMacFromForm);
+    }
+    ["v2SavedMacInput", "v2SavedMacNote"].forEach(function (id) {
+      var field = doc(id);
+      if (field) {
+        field.addEventListener("keydown", function (event) {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            addSavedMacFromForm();
+          }
+        });
+      }
+    });
+  }
+
   /* ----------------------------------------------------------------- analysis */
 
   function pingSummary(payload) {
@@ -2233,9 +2980,12 @@
     if (state.route === "dashboard") {
       D.setHidden("v2DashEmpty", true);
       loadDashboard();
+    } else if (state.route === "discovery") {
+      loadDiscovery();
     } else if (state.route === "inventory") {
       loadInventory();
     } else if (state.route === "mac-lookup") {
+      renderSavedMacs();
       var input = doc("v2MacInput");
       if (input) {
         window.setTimeout(function () {
@@ -2258,14 +3008,18 @@
     document.addEventListener("networklocator:scan-finished", function () {
       if (state.route === "dashboard" || state.route === "inventory" || state.route === "history") {
         refreshCurrent();
+      } else if (state.route === "mac-lookup") {
+        renderSavedMacs();
       }
     });
   }
 
   function init() {
     bindDashboard();
+    bindDiscovery();
     bindInventory();
     bindMac();
+    bindSavedMacs();
     bindAnalysis();
     bindHistory();
     bindSettings();

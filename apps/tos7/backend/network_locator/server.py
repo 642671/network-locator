@@ -493,7 +493,7 @@ def serve(socket_path: str = SOCKET_PATH) -> int:
         try:
             store.record_scan_task(
                 snapshot,
-                kind="mac",
+                kind=str(snapshot.get("kind") or "mac"),
                 custom_ranges=snapshot.get("custom_ranges") or [],
             )
         except Exception as record_error:

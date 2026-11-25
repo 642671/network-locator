@@ -337,11 +337,26 @@
     return attempt(0);
   }
 
+  function setBackendBadge(kind, text) {
+    var badge = byId("backendBadge");
+    if (!badge) {
+      return;
+    }
+    badge.className = "backend-badge " + (
+      kind === "online" ? "is-online" : kind === "offline" ? "is-offline" : "is-checking"
+    );
+    var label = byId("backendBadgeText");
+    if (label) {
+      label.textContent = tr(text);
+    }
+  }
+
   function updateVersionChrome(data) {
     if (!data) {
       return;
     }
     health = data;
+    setBackendBadge("online", "服务在线");
     var version = String(data.version || "--");
     var navVersion = byId("v2NavVersion");
     if (navVersion) {
@@ -484,6 +499,7 @@
     updateSettingsState();
     setRoute(routeFromHash(), false);
     fetchHealth().then(updateVersionChrome).catch(function () {
+      setBackendBadge("offline", "服务不可用");
       updateSettingsState();
     });
     window.NetworkLocatorShell = {

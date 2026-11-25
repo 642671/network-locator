@@ -203,7 +203,7 @@
     note: "备注更新",
     favorite: "收藏变更"
   };
-  var KIND_LABELS = { mac: "MAC 定位", inventory: "设备扫描", custom: "自定义范围" };
+  var KIND_LABELS = { mac: "MAC 定位", inventory: "设备扫描", network: "网络扫描", custom: "自定义范围" };
 
   function statusLabel(status) {
     return tr(STATUS_LABELS[status] || status || "未知");
@@ -426,6 +426,12 @@
 
   var API = {
     summary: function () { return request("v2/summary"); },
+    networks: function () { return request("v2/networks"); },
+    scanStatus: function () { return request("v2/scan/status"); },
+    scanStart: function (body) { return request("v2/scan/start", body || {}); },
+    scanPause: function () { return request("v2/scan/pause", {}); },
+    scanResume: function () { return request("v2/scan/resume", {}); },
+    scanStop: function () { return request("v2/scan/stop", {}); },
     devices: function (params) {
       var query = [];
       Object.keys(params || {}).forEach(function (key) {
@@ -472,6 +478,7 @@
     request: request,
     toast: toast,
     tr: tr,
+    translateMessage: translateMessage,
     el: el,
     clear: clear,
     setText: setText,

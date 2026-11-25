@@ -980,7 +980,11 @@ class Store:
         results = [dict(item) for item in (snapshot.get("results") or []) if isinstance(item, Mapping)]
         networks = [dict(item) for item in (snapshot.get("networks") or []) if isinstance(item, Mapping)]
         range_names = [str(item.get("scan_range") or "") for item in networks if item.get("scan_range")]
-        complete = kind == "inventory" and status == "completed"
+        complete = (
+            kind in {"inventory", "network"}
+            and status == "completed"
+            and not bool(snapshot.get("custom_only"))
+        )
         summary = self.ingest_observations(
             results,
             task_id=task_id,

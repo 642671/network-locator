@@ -18,6 +18,7 @@ from .core import (
     CommandError,
     ScanManager,
     discover_networks,
+    max_configured_hosts,
     merge_custom_targets,
     network_target_payload,
     normalize_custom_ranges,
@@ -260,6 +261,118 @@ def _inventory_scan(handler: Any) -> None:
         lock.release()
 
 
+def _networks_route(handler: Any, method: str) -> None:
+    store = _store(handler)
+    if method not in {"GET", "HEAD"}:
+        raise V2Error(405, "method not allowed")
+    targets, warnings = discover_networks()
+    payloads = _network_payloads(targets)
+    store.record_network_snapshot(payloads)
+    handler._send_json(
+        200,
+        {
+            "ok": True,
+            "networks": payloads,
+            "warnings": warnings,
+            "max_hosts": max_configured_hosts(),
+            "settings": store.get_settings(),
+        },
+        head_only=method == "HEAD",
+    )
+
+
+def _scan_start_route(handler: Any) -> None:
+    body = handler._read_json_body()
+    if "scan_all" in body:
+        scan_all = bool(body.get("scan_all"))
+    else:
+        scan_all = not (body.get("suffixes") or body.get("suffix"))
+    custom_only = bool(body.get("custom_only"))
+    try:
+        raw_network_ids = body.get("network_ids")
+        if custom_only and raw_network_ids == []:
+            network_ids = None
+        else:
+            network_ids = normalize_network_ids(raw_network_ids)
+        custom_ranges = normalize_custom_ranges(body.get("custom_ranges"))
+    except ValueError as exc:
+        raise V2Error(400, str(exc)) from exc
+    if custom_only and not custom_ranges:
+        raise V2Error(400, "自定义范围不能为空")
+    manager = _manager(handler)
+    lock = getattr(handler.server, "device_scan_lock", None)
+    if lock is None:
+        raise V2Error(503, "扫描锁不可用")
+    if not lock.acquire(blocking=False):
+        raise V2Error(409, "另一个扫描任务正在进行中")
+    try:
+        if manager.status().get("running"):
+            raise V2Error(409, "另一个扫描任务正在进行中")
+        started = manager.start(
+            [],
+            network_ids,
+            custom_ranges,
+            custom_only,
+            scan_all=scan_all,
+        )
+        actual = manager.status()
+        handler._send_json(
+            202 if started else 200,
+            {
+                "ok": True,
+                "started": started,
+                "running": bool(actual.get("running")),
+                "status": actual.get("status"),
+                "job_id": actual.get("job_id", ""),
+                "paused": bool(actual.get("paused")),
+                "scan_all": bool(actual.get("scan_all")),
+                "kind": actual.get("kind", "mac"),
+                "selected_network_ids": actual.get("selected_network_ids", []),
+                "custom_ranges": actual.get("custom_ranges", custom_ranges),
+                "custom_only": bool(actual.get("custom_only")),
+            },
+        )
+    except ValueError as exc:
+        raise V2Error(400, str(exc)) from exc
+    finally:
+        lock.release()
+
+
+def _scan_status_route(handler: Any, method: str) -> None:
+    if method not in {"GET", "HEAD"}:
+        raise V2Error(405, "method not allowed")
+    handler._send_json(
+        200,
+        {"ok": True, **_manager(handler).status()},
+        head_only=method == "HEAD",
+    )
+
+
+def _scan_control_route(handler: Any, action: str) -> None:
+    handler._read_json_body()
+    manager = _manager(handler)
+    if action == "pause":
+        changed = manager.pause()
+    elif action == "resume":
+        changed = manager.resume()
+    else:
+        changed = manager.stop()
+    status = manager.status()
+    handler._send_json(
+        200,
+        {
+            "ok": True,
+            "changed": changed,
+            "running": bool(status.get("running")),
+            "paused": bool(status.get("paused")),
+            "stopping": bool(status.get("stopping")),
+            "status": status.get("status"),
+            "job_id": status.get("job_id", ""),
+            "progress_percent": status.get("progress_percent", 0),
+        },
+    )
+
+
 def _live_mac_matches(handler: Any, query: str, mode: str) -> list[dict[str, Any]]:
     try:
         status = _manager(handler).status()
@@ -454,6 +567,7 @@ def _settings_route(handler: Any, method: str) -> None:
                     "network-analysis",
                     "custom-ranges",
                     "pause-resume",
+                    "network-scan",
                 ],
             },
             head_only=method == "HEAD",
@@ -482,8 +596,22 @@ def handle_v2(handler: Any, method: str, parts: list[str]) -> bool:
             payload = _summary(handler)
             handler._send_json(200, payload, head_only=method == "HEAD")
             return True
+        if parts == ["v2", "networks"]:
+            _networks_route(handler, method)
+            return True
         if parts == ["v2", "devices"]:
             _list_devices(handler, method)
+            return True
+        if parts == ["v2", "scan", "start"] and method == "POST":
+            _scan_start_route(handler)
+            return True
+        if parts == ["v2", "scan", "status"]:
+            _scan_status_route(handler, method)
+            return True
+        if parts in (["v2", "scan", "pause"], ["v2", "scan", "resume"], ["v2", "scan", "stop"]):
+            if method != "POST":
+                raise V2Error(405, "method not allowed")
+            _scan_control_route(handler, parts[2])
             return True
         if parts == ["v2", "devices", "scan"] and method == "POST":
             _inventory_scan(handler)

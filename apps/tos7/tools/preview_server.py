@@ -57,6 +57,11 @@ _PREVIEW_EN = {
     "示例：目标范围不可达": "Example: the target range is unreachable",
     "所选网段当前不可用，请刷新网段后重试": "The selected networks are unavailable. Refresh and try again.",
     "所选网段当前不可用：": "Selected networks are unavailable: ",
+    "预览模式：网络扫描返回示例设备，未执行真实探测。": "Preview: the network scan returns sample devices; no real probing ran.",
+    "自定义范围不能为空": "Custom ranges cannot be empty",
+    "自定义范围格式不正确": "Invalid custom range",
+    "invalid custom range": "Invalid custom range",
+    "invalid suffix": "Invalid MAC suffix",
 }
 
 
@@ -210,8 +215,12 @@ class PreviewState:
             "stopping": False,
             "paused": False,
             "job_id": "",
+            "scan_all": False,
+            "kind": "mac",
             "suffix": "",
             "suffixes": [],
+            "custom_ranges": [],
+            "custom_only": False,
             "selected_network_ids": [],
             "requested_network_ids": None,
             "started_at": None,
@@ -236,6 +245,9 @@ class PreviewState:
         suffixes: list[str],
         networks: list[dict],
         requested_network_ids: list[str] | None = None,
+        scan_all: bool = False,
+        custom_ranges: list[str] | None = None,
+        custom_only: bool = False,
     ) -> bool:
         with self.lock:
             if self.data["running"]:
@@ -244,25 +256,35 @@ class PreviewState:
             self.cancel = threading.Event()
             self.pause_event.clear()
             self.data = self._idle()
+            warnings = ["预览模式会跳过虚拟网卡 docker0"]
+            if scan_all:
+                warnings.append("预览模式：网络扫描返回示例设备，未执行真实探测。")
+            if custom_only:
+                warnings.append("预览模式：自定义范围由示例网段代替，未执行真实扫描。")
             self.data.update(
                 {
                     "status": "discovering",
                     "running": True,
-                    "suffix": suffixes[0],
+                    "scan_all": bool(scan_all),
+                    "kind": "network" if scan_all else "mac",
+                    "suffix": suffixes[0] if suffixes else "",
                     "suffixes": list(suffixes),
+                    "custom_ranges": list(custom_ranges or []),
+                    "custom_only": bool(custom_only and custom_ranges),
                     "selected_network_ids": [network_key(network) for network in networks],
                     "requested_network_ids": (
                         None
                         if requested_network_ids is None
                         else list(requested_network_ids)
                     ),
+                    "warnings": warnings,
                     "job_id": f"preview-{self.job_sequence}",
                     "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 }
             )
         threading.Thread(
             target=self._run,
-            args=(list(suffixes), self.cancel, networks),
+            args=(list(suffixes), self.cancel, networks, bool(scan_all)),
             daemon=True,
             name="preview-scan",
         ).start()
@@ -272,9 +294,12 @@ class PreviewState:
         self,
         suffixes: list[str],
         network_ids: list[str] | None = None,
+        scan_all: bool = False,
     ) -> bool:
         with self.lock:
-            if set(self.data["suffixes"]) != set(suffixes):
+            if bool(self.data.get("scan_all")) != bool(scan_all):
+                return False
+            if not scan_all and set(self.data["suffixes"]) != set(suffixes):
                 return False
             active = self.data.get("requested_network_ids")
             if active is None or network_ids is None:
@@ -311,6 +336,7 @@ class PreviewState:
         suffixes: list[str],
         cancel: threading.Event,
         networks: list[dict],
+        scan_all: bool = False,
     ) -> None:
         time.sleep(0.35)
         if cancel.is_set():
@@ -346,7 +372,7 @@ class PreviewState:
                 if cancel.is_set():
                     self._finish("stopped")
                     return
-                time.sleep(0.12)
+                time.sleep(SCAN_STEP_DELAY)
                 completed = probed_before + (host_count * step // 4)
                 with self.lock:
                     self.data["probed_hosts"] = completed
@@ -357,24 +383,45 @@ class PreviewState:
                     self.data["current_range"] = network["scan_range"]
             probed_before += host_count
         if not self.no_match:
-            network = networks[0]
-            local_mac = str(network.get("local_mac") or "02-42-AC-11-00-19")
-            local_ip = str(network.get("local_ip") or "192.0.2.25")
-            base_ip = local_ip.rsplit(".", 1)[0] + "."
-            prefix = local_mac.split("-")[:4]
-            results = []
-            for index, suffix in enumerate(suffixes):
-                suffix_mac = str(suffix).upper()
-                results.append(
-                    {
-                        "interface": network["interface"],
-                        "scan_range": network["scan_range"],
-                        "ip": base_ip + str(100 + index),
-                        "mac": "-".join(prefix + [suffix_mac[:2], suffix_mac[2:]]),
-                        "state": "LOCAL",
-                        "matched_suffixes": [suffix_mac],
-                    }
-                )
+            selected = {
+                f"{network['interface']}|{network['scan_range']}"
+                for network in networks
+            }
+            if scan_all:
+                results = []
+                for device in V2.devices:
+                    network_id = str(device.get("network_id") or "")
+                    if network_id not in selected:
+                        continue
+                    interface, _, scan_range = network_id.partition("|")
+                    results.append(
+                        {
+                            "interface": interface,
+                            "scan_range": scan_range,
+                            "ip": device.get("ip", ""),
+                            "mac": device.get("mac", ""),
+                            "state": device.get("status_state") or "REACHABLE",
+                        }
+                    )
+            else:
+                network = networks[0]
+                local_mac = str(network.get("local_mac") or "02-42-AC-11-00-19")
+                local_ip = str(network.get("local_ip") or "192.0.2.25")
+                base_ip = local_ip.rsplit(".", 1)[0] + "."
+                prefix = local_mac.split("-")[:4]
+                results = []
+                for index, suffix in enumerate(suffixes):
+                    suffix_mac = str(suffix).upper()
+                    results.append(
+                        {
+                            "interface": network["interface"],
+                            "scan_range": network["scan_range"],
+                            "ip": base_ip + str(100 + index),
+                            "mac": "-".join(prefix + [suffix_mac[:2], suffix_mac[2:]]),
+                            "state": "LOCAL",
+                            "matched_suffixes": [suffix_mac],
+                        }
+                    )
             with self.lock:
                 self.data["results"] = results
         self._finish("completed")
@@ -397,6 +444,7 @@ class PreviewState:
 
 
 STATE = PreviewState()
+SCAN_STEP_DELAY = 0.12
 
 
 def _v2_iso(minutes_ago: int) -> str:
@@ -670,6 +718,26 @@ class V2PreviewState:
     def add_bulk_devices(self, count: int) -> None:
         """Generate synthetic devices for pagination and 10k-row UI checks."""
 
+        bulk_network_id = "enp1s0|10.99.0.0/16"
+        if not any(
+            str(network.get("network_id")) == bulk_network_id for network in NETWORKS
+        ):
+            NETWORKS.append(
+                {
+                    "interface": "enp1s0",
+                    "network_id": bulk_network_id,
+                    "alias": "enp1s0",
+                    "local_ip": "10.99.0.1",
+                    "prefix_length": 16,
+                    "gateway": "10.99.0.1",
+                    "network": "10.99.0.0",
+                    "broadcast": "10.99.255.255",
+                    "scan_range": "10.99.0.0/16",
+                    "host_count": 1022,
+                    "local_source": "10.99.0.1",
+                    "local_mac": "02-42-AC-99-00-01",
+                }
+            )
         with self.lock:
             for index in range(max(0, int(count))):
                 ip = f"10.99.{index // 254}.{index % 254 + 1}"
@@ -681,7 +749,7 @@ class V2PreviewState:
                         mac,
                         f"Bulk device {index}",
                         "enp1s0",
-                        "enp1s0|10.99.0.0/16",
+                        bulk_network_id,
                         "online",
                         index % 240,
                     )
@@ -1011,7 +1079,7 @@ class V2PreviewState:
             },
             "vendor_count": 205,
             "schema_version": 2,
-            "capabilities": ["store/sqlite", "devices", "scan-history", "mac-lookup", "network-analysis", "custom-ranges", "pause-resume"],
+            "capabilities": ["store/sqlite", "devices", "scan-history", "mac-lookup", "network-analysis", "custom-ranges", "pause-resume", "network-scan"],
         }
 
     def update_settings(self, patch: dict) -> dict:
@@ -1045,6 +1113,101 @@ class V2PreviewState:
 
 
 V2 = V2PreviewState()
+
+
+def normalize_preview_ranges(value: object) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("自定义范围格式不正确")
+    ranges: list[str] = []
+    for item in value:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        if "/" not in text and "-" not in text:
+            raise ValueError("自定义范围格式不正确")
+        if text not in ranges:
+            ranges.append(text)
+    if len(ranges) > 10:
+        raise ValueError("最多添加 10 个自定义范围")
+    return ranges
+
+
+def preview_scan_start(body: dict):
+    raw_suffixes = body.get("suffixes")
+    if raw_suffixes is None:
+        legacy = body.get("suffix")
+        raw_suffixes = [legacy] if legacy else []
+    if isinstance(raw_suffixes, str):
+        raw_suffixes = [raw_suffixes]
+    suffixes: list[str] = []
+    for item in raw_suffixes or []:
+        text = str(item or "").upper()
+        if len(text) != 4 or any(character not in "0123456789ABCDEF" for character in text):
+            raise ValueError("invalid suffix")
+        if text not in suffixes:
+            suffixes.append(text)
+    if "scan_all" in body:
+        scan_all = bool(body.get("scan_all"))
+    else:
+        scan_all = not suffixes
+    if not scan_all and not suffixes:
+        raise ValueError("invalid suffix")
+    custom_ranges = normalize_preview_ranges(body.get("custom_ranges"))
+    custom_only = bool(body.get("custom_only"))
+    if custom_only and not custom_ranges:
+        raise ValueError("自定义范围不能为空")
+    if custom_only:
+        network_ids = None
+        networks = [NETWORKS[0]]
+        missing: list[str] = []
+    else:
+        network_ids = normalize_selected_ids(body.get("network_ids"))
+        networks, missing = select_preview_networks(network_ids)
+        if network_ids is not None and not networks:
+            return 409, {
+                "ok": False,
+                "app": APP_ID,
+                "sample": True,
+                "error": "所选网段当前不可用，请刷新网段后重试",
+            }
+    started = STATE.start(
+        suffixes,
+        networks,
+        network_ids,
+        scan_all=scan_all,
+        custom_ranges=custom_ranges,
+        custom_only=custom_only,
+    )
+    actual = STATE.status()
+    if not started and not STATE.matches_request(suffixes, network_ids, scan_all=scan_all):
+        return 409, {
+            "ok": False,
+            "app": APP_ID,
+            "sample": True,
+            "error": "another scan is already running with a different scope",
+        }
+    warnings = ["所选网段当前不可用：" + "、".join(missing)] if missing else []
+    return (202 if started else 200), {
+        "ok": True,
+        "app": APP_ID,
+        "version": PREVIEW_VERSION,
+        "sample": True,
+        "started": started,
+        "running": actual.get("running"),
+        "status": actual.get("status"),
+        "job_id": actual.get("job_id", ""),
+        "scan_all": bool(actual.get("scan_all")),
+        "kind": actual.get("kind", "mac"),
+        "suffix": actual.get("suffix", ""),
+        "suffixes": actual.get("suffixes", []),
+        "paused": bool(actual.get("paused")),
+        "selected_network_ids": actual.get("selected_network_ids", []),
+        "custom_ranges": actual.get("custom_ranges", []),
+        "custom_only": bool(actual.get("custom_only")),
+        "warnings": warnings,
+    }
 
 
 def v2_dispatch(method: str, path: str, body: dict):
@@ -1090,6 +1253,25 @@ def v2_dispatch(method: str, path: str, body: dict):
                 return 200, {"ok": True, "app": APP_ID, "version": PREVIEW_VERSION, "sample": True, "task": task}
             if rest == ["settings"]:
                 return 200, V2.settings_payload()
+            if rest == ["networks"]:
+                return 200, {
+                    "ok": True,
+                    "app": APP_ID,
+                    "version": PREVIEW_VERSION,
+                    "sample": True,
+                    "networks": [dict(item) for item in NETWORKS],
+                    "warnings": ["预览模式：docker0 已作为虚拟网卡跳过"],
+                    "max_hosts": 1022,
+                    "settings": V2.settings_payload(),
+                }
+            if rest == ["scan", "status"]:
+                return 200, {
+                    "ok": True,
+                    "app": APP_ID,
+                    "version": PREVIEW_VERSION,
+                    "sample": True,
+                    **STATE.status(),
+                }
             return 404, None
         if method == "PATCH":
             if len(rest) == 2 and rest[0] == "devices":
@@ -1101,6 +1283,25 @@ def v2_dispatch(method: str, path: str, body: dict):
                 return 200, {"ok": True, "app": APP_ID, "version": PREVIEW_VERSION, "sample": True, "settings": V2.update_settings(body)}
             return 404, None
         if method == "POST":
+            if rest == ["scan", "start"]:
+                return preview_scan_start(body)
+            if rest in (["scan", "pause"], ["scan", "resume"], ["scan", "stop"]):
+                action = rest[-1]
+                if action == "pause":
+                    changed = STATE.pause()
+                elif action == "resume":
+                    changed = STATE.resume()
+                else:
+                    STATE.stop()
+                    changed = True
+                return 200, {
+                    "ok": True,
+                    "app": APP_ID,
+                    "version": PREVIEW_VERSION,
+                    "sample": True,
+                    "changed": changed,
+                    **STATE.status(),
+                }
             if rest == ["devices", "scan"]:
                 return 200, V2.scan_inventory(body)
             if rest == ["mac", "lookup"]:
@@ -1379,7 +1580,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 
 
 def main() -> int:
-    global STATE
+    global STATE, SCAN_STEP_DELAY
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=4178)
     parser.add_argument(
@@ -1393,7 +1594,14 @@ def main() -> int:
         default=0,
         help="append N synthetic devices for large-table checks",
     )
+    parser.add_argument(
+        "--scan-step-delay",
+        type=float,
+        default=0.12,
+        help="seconds per preview scan progress step",
+    )
     args = parser.parse_args()
+    SCAN_STEP_DELAY = max(0.0, float(args.scan_step_delay))
     STATE = PreviewState(no_match=args.no_match)
     if args.bulk > 0:
         V2.add_bulk_devices(args.bulk)

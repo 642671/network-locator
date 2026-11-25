@@ -202,6 +202,40 @@ class StoreIdentityTests(unittest.TestCase):
         self.assertEqual(detail["status"], "offline")
         self.assertIn("offline", [item["kind"] for item in detail["events"]])
 
+    def test_network_scan_only_marks_missing_offline_when_completed(self) -> None:
+        self.store.ingest_observations(
+            [
+                observation("AA-BB-CC-11-22-33", "192.0.2.10"),
+                observation("AA-BB-CC-11-22-44", "192.0.2.11"),
+            ]
+        )
+        base = {
+            "networks": [{"scan_range": "10.0.0.0/24"}],
+            "results": [observation("AA-BB-CC-11-22-33", "192.0.2.10")],
+        }
+        stopped = self.store.record_scan_task(
+            {"job_id": "net-stopped", "status": "stopped", **base},
+            kind="network",
+        )
+        self.assertEqual(stopped["offline_devices"], 0)
+        missing = [
+            item
+            for item in self.store.list_devices()["devices"]
+            if item["mac"] == "AA-BB-CC-11-22-44"
+        ][0]
+        self.assertNotEqual(missing["status"], "offline")
+        completed = self.store.record_scan_task(
+            {"job_id": "net-completed", "status": "completed", **base},
+            kind="network",
+        )
+        self.assertEqual(completed["offline_devices"], 1)
+        missing = [
+            item
+            for item in self.store.list_devices()["devices"]
+            if item["mac"] == "AA-BB-CC-11-22-44"
+        ][0]
+        self.assertEqual(missing["status"], "offline")
+
     def test_stale_online_device_becomes_unknown(self) -> None:
         self.store.update_settings({"stale_after_minutes": 1})
         self.store.ingest_observations([observation("AA-BB-CC-11-22-33", "192.0.2.10")])
