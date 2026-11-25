@@ -3843,8 +3843,12 @@ function bindTooltips() {
 }
 
 function sidebarWidthBounds() {
-  var shell = byId("sidebarResizer").parentElement;
-  var splitterWidth = byId("sidebarResizer").offsetWidth || 10;
+  var handle = byId("sidebarResizer");
+  var shell = handle && handle.parentElement;
+  if (!shell) {
+    return { min: MIN_SIDEBAR_WIDTH, max: MAX_SIDEBAR_WIDTH };
+  }
+  var splitterWidth = handle.offsetWidth || 10;
   var maximum = Math.min(
     MAX_SIDEBAR_WIDTH,
     shell.clientWidth - splitterWidth - MIN_WORKSPACE_WIDTH
@@ -3884,6 +3888,9 @@ function observeWorkspaceDensity() {
 
 function applySidebarWidth(value, persist) {
   var handle = byId("sidebarResizer");
+  if (!handle) {
+    return 0;
+  }
   var bounds = sidebarWidthBounds();
   var width = Math.round(
     Math.max(bounds.min, Math.min(bounds.max, Number(value) || bounds.min))
@@ -3907,6 +3914,9 @@ function scanPaneHeightBounds() {
   var sidebar = document.querySelector(".sidebar");
   var footer = document.querySelector(".sidebar-footer");
   var splitter = byId("networkResizer");
+  if (!sidebar || !footer || !splitter) {
+    return { min: MIN_SCAN_PANE_HEIGHT, max: 560 };
+  }
   var available = sidebar.clientHeight -
     footer.offsetHeight -
     splitter.offsetHeight;
@@ -3919,6 +3929,9 @@ function scanPaneHeightBounds() {
 
 function applyScanPaneHeight(value, persist) {
   var handle = byId("networkResizer");
+  if (!handle) {
+    return 0;
+  }
   var bounds = scanPaneHeightBounds();
   var height = Math.round(
     Math.max(bounds.min, Math.min(bounds.max, Number(value) || bounds.min))

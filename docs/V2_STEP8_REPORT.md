@@ -27,7 +27,7 @@
 | 明暗主题 | 通过（浅色/深色四套截图与 DOM 属性一致） |
 | 响应式 | 通过（1180×720、900、760、620 均无横向溢出） |
 | 后端测试 | 通过（105 / 105） |
-| 前端测试 | 通过（44 / 44） |
+| 前端测试 | 通过（45 / 45，含布局回归） |
 | 语法检查 | 通过（全部前端 `node --check`；后端 `compileall`） |
 | 构建 x86_64 / aarch64 | 通过（Verification OK；SHA 见下） |
 | 打包契约 | 未改动（app id、包内路径、systemd unit、socket、运行用户、1180×720） |
@@ -67,8 +67,8 @@
 
 | 架构 | 文件 | 大小 | SHA256 |
 | --- | --- | --- | --- |
-| x86_64 | `apps/tos7/dist/network-locator_1.4.0_x86_64.deb` | 136344 bytes | `e39eb2a3ed3dd3d55f847ef679c05fbe933421f2c1843edb812b463d491cbed5` |
-| aarch64 | `apps/tos7/dist/network-locator_1.4.0_aarch64.deb` | 136344 bytes | `b4a45bd2e8f358848b4767abe22af6bf13d5082d96a0406721a5201f3c544727` |
+| x86_64 | `apps/tos7/dist/network-locator_1.4.0_x86_64.deb` | 136400 bytes | `493d9964aedebbb2c884a6a2a850f6743eb14d4521c9f856ad5211230a3d3b1a` |
+| aarch64 | `apps/tos7/dist/network-locator_1.4.0_aarch64.deb` | 136398 bytes | `6db252452c9f4678afb4701c6bfb0b68abf7b626928eaa8030c38e4d29a6619b` |
 
 两次构建均输出 `Verification: OK`。未打 tag、未发 Release、未提交审核。
 
@@ -86,7 +86,7 @@
 1. **真机 TOS 全流程回归未执行**：安装、服务 active、平台入口、7 个页面、真实网络扫描、卸载仍需在 TOS 机器上完成。按要求未触碰 189/190，等待机器窗口。
 2. **45 分钟自动扫描未做墙钟等待**：通过调度器状态（`thread_alive`、`seconds_until_next`）和 fake-clock 单测验证策略与执行路径，未实际等待 45 分钟。
 3. **存储迁移边界（设计约束）**：只允许 `APP_DATA` 内的绝对路径；目标已有数据库文件会明确拒绝；旧库保留作回滚，不自动删除。
-4. **遗留导航控制台错误（非第 8 步引入）**：从设备总览切到“网络扫描”时，`app.js` 遗留 `sidebarWidthBounds()` 访问不存在的 `#sidebarResizer` 会抛一次 `parentElement` 空引用；页面渲染与功能不受影响，本次未改无关代码，留待后续清理。
+4. **导航控制台错误（已修复）**：从设备总览切到“网络扫描”时，`app.js` 遗留 `sidebarWidthBounds()` / `scanPaneHeightBounds()` 对不存在的遗留面板空引用已加保护，缺少 `#sidebarResizer` / `#networkResizer` 时安全返回；新增 `frontend_layout.test.js` 回归，7 个页面 × 中英浅深切换 console 0 error。
 5. **英文深色 1081px 表格内 4px 滚动条**：之前已记录的外观问题，按要求本次不投入处理。
 
 ## 6. 1.3.8 审核状态
