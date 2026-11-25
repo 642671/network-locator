@@ -37,8 +37,15 @@
       token: 0
     },
     mac: {
-      last: null,
-      batch: false
+      query: "",
+      mode: "auto",
+      payload: null,
+      groups: [],
+      batch: false,
+      offset: 0,
+      limit: 50,
+      loading: false,
+      token: 0
     },
     discovery: {
       networks: [],
@@ -1509,6 +1516,7 @@
     full: "完整 MAC",
     prefix: "6 位前缀",
     suffix: "后缀",
+    vendor: "厂商名",
     any: "包含片段",
     empty: "等待输入"
   };
@@ -1520,16 +1528,25 @@
   function updateMacHint() {
     var input = doc("v2MacInput");
     var hint = doc("v2MacHint");
+    var mode = doc("v2MacMode");
     if (!input || !hint) {
       return;
     }
-    var parsed = D.macKind(input.value);
+    var parsed = D.macKind(input.value, mode ? mode.value : "auto");
+    hint.classList.remove("is-error");
+    input.removeAttribute("aria-invalid");
     if (parsed.kind === "empty") {
       hint.textContent = D.tr("等待输入");
       return;
     }
-    if (parsed.compact.length < 4) {
-      hint.textContent = D.tr("至少输入 4 位十六进制字符。");
+    if (!parsed.valid) {
+      hint.textContent = D.tr(parsed.error);
+      hint.classList.add("is-error");
+      input.setAttribute("aria-invalid", "true");
+      return;
+    }
+    if (parsed.kind === "vendor") {
+      hint.textContent = D.tr("厂商名 · 提交后按内置 OUI 表检索");
       return;
     }
     hint.textContent = macKindLabel(parsed.kind) + " · " + D.tr("有效十六进制 ") + parsed.compact.length + D.tr(" 位");
@@ -1539,37 +1556,71 @@
     return value ? D.tr(value) : D.tr("未知厂商");
   }
 
-  function renderVendorNote(prefixes) {
+  function renderVendorNote(payload) {
     var note = doc("v2MacVendor");
     if (!note) {
       return;
     }
-    var list = prefixes || [];
-    if (!list.length) {
+    var hint = payload && payload.vendor_hint ? payload.vendor_hint : null;
+    var list = (payload && payload.vendor_prefixes) || [];
+    if (!hint && !list.length) {
       note.hidden = true;
       note.textContent = "";
       return;
     }
     note.hidden = false;
     D.clear(note);
-    note.appendChild(D.el("strong", "", D.tr("厂商前缀匹配")));
-    var shown = list.slice(0, 8).map(function (item) {
-      return item.prefix + " " + vendorText(item.vendor);
-    });
-    note.appendChild(D.el("span", "", shown.join(" · ") + (list.length > 8 ? " …" : "")));
+    note.appendChild(D.el("strong", "", hint ? D.tr("厂商") : D.tr("厂商前缀匹配")));
+    var parts = [];
+    if (hint) {
+      if (hint.vendor) {
+        parts.push(hint.vendor);
+      } else {
+        parts.push(D.tr("未知厂商"));
+      }
+      if (hint.prefix) {
+        parts.push("OUI " + hint.prefix);
+      }
+      if (Array.isArray(hint.prefixes) && hint.prefixes.length) {
+        parts.push(hint.prefixes.slice(0, 6).join(" · ") + (hint.prefixes.length > 6 ? " …" : ""));
+      }
+    }
+    if (list.length) {
+      var shown = list.slice(0, 8).map(function (item) {
+        return item.prefix + " " + vendorText(item.vendor);
+      });
+      parts.push(shown.join(" · ") + (list.length > 8 ? " …" : ""));
+    }
+    note.appendChild(D.el("span", "", parts.join(" · ")));
   }
 
   function macResultCard(match) {
     var card = D.el("article", "v2-result-card");
     var head = D.el("div", "v2-result-head");
     var title = D.el("div", "v2-name-line");
-    title.appendChild(D.el("strong", "", D.deviceName(match)));
+    if (match.device_id) {
+      var nameButton = D.el("button", "v2-text-button v2-result-name", D.deviceName(match));
+      nameButton.type = "button";
+      nameButton.title = D.tr("打开设备详情");
+      nameButton.addEventListener("click", function () {
+        openDevice(match.device_id);
+      });
+      title.appendChild(nameButton);
+    } else {
+      title.appendChild(D.el("strong", "", D.deviceName(match)));
+    }
     title.appendChild(D.statusBadge(match.status, D.statusReason(match)));
     if (match.live) {
       title.appendChild(D.el("span", "v2-mini-badge", D.tr("扫描结果")));
     }
     if (match.random_mac) {
       title.appendChild(D.el("span", "v2-mini-badge", D.tr("随机 MAC")));
+    }
+    if (match.virtual_adapter) {
+      title.appendChild(D.el("span", "v2-mini-badge", D.tr("虚拟网卡")));
+    }
+    if (match.device_id) {
+      title.appendChild(D.el("span", "v2-mini-badge v2-mini-badge--quiet", D.tr("已关联设备档案")));
     }
     head.appendChild(title);
     card.appendChild(head);
@@ -1616,52 +1667,186 @@
     return card;
   }
 
-  function renderMacGroup(result) {
+  function macPageInfo(offset, count, total, limit) {
+    var page = Math.floor(offset / Math.max(1, limit)) + 1;
+    var start = total ? offset + 1 : 0;
+    return D.tr("第") + " " + page + D.tr(" 页") + " · " + start + "–" + (offset + count) + " / " + total;
+  }
+
+  function normalizeMacGroup(result) {
+    return {
+      query: result.query || "",
+      mode: result.mode || "",
+      hex: result.hex || "",
+      matches: result.matches || [],
+      count: result.count || 0,
+      total: typeof result.total === "number" ? result.total : (result.count || 0),
+      limit: result.limit || state.mac.limit || 50,
+      offset: result.offset || 0,
+      has_more: !!result.has_more,
+      error: result.error || "",
+      vendor_hint: result.vendor_hint || null,
+      vendor_prefixes: result.vendor_prefixes || [],
+      loading: false
+    };
+  }
+
+  function macGroupPager(group, index) {
+    var total = Number(group.total || 0);
+    var offset = Number(group.offset || 0);
+    var count = (group.matches || []).length;
+    var limit = Number(group.limit || state.mac.limit || 50);
+    if (total === 0 || (total <= limit && offset === 0)) {
+      return null;
+    }
+    var pager = D.el("div", "v2-pager");
+    pager.appendChild(D.el("span", "v2-muted", macPageInfo(offset, count, total, limit)));
+    var prev = D.el("button", "v2-button", D.tr("上一页"));
+    prev.type = "button";
+    prev.disabled = offset <= 0 || !!group.loading;
+    prev.addEventListener("click", function () {
+      loadMacGroupPage(index, Math.max(0, offset - limit));
+    });
+    var next = D.el("button", "v2-button", D.tr("下一页"));
+    next.type = "button";
+    next.disabled = offset + count >= total || !!group.loading;
+    next.addEventListener("click", function () {
+      loadMacGroupPage(index, offset + limit);
+    });
+    pager.appendChild(prev);
+    pager.appendChild(next);
+    return pager;
+  }
+
+  function renderMacGroup(group, index, withPager) {
     var wrapper = D.el("section", "v2-result-group");
     var header = D.el("header", "v2-result-group-head");
-    header.appendChild(D.el("strong", "", result.query || ""));
-    header.appendChild(D.el("span", "v2-count", result.count || 0));
+    header.appendChild(D.el("strong", "", group.query || ""));
+    var total = Number(group.total || 0);
+    header.appendChild(D.el("span", "v2-count", String(total || (group.matches || []).length || 0)));
+    if (group.mode) {
+      header.appendChild(D.el("span", "v2-mini-badge", macKindLabel(group.mode)));
+    }
+    if (group.vendor_hint) {
+      var hint = group.vendor_hint;
+      var label = hint.vendor || D.tr("未知厂商");
+      if (hint.prefix) {
+        label += " · " + hint.prefix;
+      }
+      if (Array.isArray(hint.prefixes) && hint.prefixes.length) {
+        label += " · " + (hint.prefixes.length > 1 ? hint.prefixes.length + D.tr(" 个 OUI") : hint.prefixes[0]);
+      }
+      header.appendChild(D.el("span", "v2-mini-badge v2-mini-badge--quiet", label));
+    }
     wrapper.appendChild(header);
-    if (result.error) {
-      wrapper.appendChild(D.el("p", "v2-warning", result.error));
+    if (group.error) {
+      wrapper.appendChild(D.el("p", "v2-warning", D.translateMessage(group.error)));
       return wrapper;
     }
-    if (result.mode) {
-      wrapper.appendChild(D.el("p", "v2-hint", macKindLabel(result.mode)));
+    if (group.loading) {
+      var loadingBox = D.el("div", "v2-loading");
+      loadingBox.appendChild(D.el("span", "v2-spinner"));
+      loadingBox.appendChild(document.createTextNode(D.tr("正在查询…")));
+      wrapper.appendChild(loadingBox);
+      return wrapper;
     }
-    (result.matches || []).forEach(function (match) {
+    (group.matches || []).forEach(function (match) {
       wrapper.appendChild(macResultCard(match));
     });
-    if (!(result.matches || []).length) {
+    if (!(group.matches || []).length) {
       wrapper.appendChild(D.el("div", "v2-empty-state", D.tr("没有找到匹配设备。")));
+    }
+    if (withPager) {
+      var pager = macGroupPager(group, index);
+      if (pager) {
+        wrapper.appendChild(pager);
+      }
     }
     return wrapper;
   }
 
-  function renderMacResults(payload, batch) {
+  function macGroups() {
+    if (state.mac.batch) {
+      return state.mac.groups || [];
+    }
+    return state.mac.payload ? [normalizeMacGroup(state.mac.payload)] : [];
+  }
+
+  function paintMacPager(payload, batch) {
+    var pager = doc("v2MacPager");
+    if (!pager) {
+      return;
+    }
+    if (batch || !payload) {
+      pager.hidden = true;
+      return;
+    }
+    var limit = Number(payload.limit || state.mac.limit || 50);
+    var total = Number(payload.total || 0);
+    var count = (payload.matches || []).length;
+    var offset = Number(payload.offset || 0);
+    pager.hidden = total === 0 || (total <= count && offset === 0);
+    D.setText("v2MacPagerInfo", macPageInfo(offset, count, total, limit));
+    var prev = doc("v2MacPrev");
+    var next = doc("v2MacNext");
+    if (prev) {
+      prev.disabled = offset <= 0;
+    }
+    if (next) {
+      next.disabled = offset + count >= total;
+    }
+  }
+
+  function renderMacGroups() {
     var container = doc("v2MacResults");
     var empty = doc("v2MacEmpty");
     if (!container) {
       return;
     }
     D.clear(container);
-    var groups = batch ? (payload.results || []) : [payload];
+    var groups = macGroups();
     var total = 0;
     groups.forEach(function (group) {
-      total += group.count || (group.matches || []).length;
+      total += Number(group.total || (group.matches || []).length || 0);
     });
-    D.setText("v2MacCount", total);
+    D.setText("v2MacCount", D.countDevices(total));
+    groups.forEach(function (group, index) {
+      container.appendChild(renderMacGroup(group, index, state.mac.batch));
+    });
     if (empty) {
-      empty.hidden = total > 0;
-      if (!total) {
+      empty.hidden = groups.length > 0;
+      if (!groups.length) {
         empty.textContent = D.tr("没有找到匹配设备。可先运行网络扫描，或改用更短的后缀。");
       }
     }
-    groups.forEach(function (group) {
-      container.appendChild(renderMacGroup(group));
-    });
-    var first = groups[0] || {};
-    renderVendorNote(first.vendor_prefixes || []);
+    paintMacPager(state.mac.payload, state.mac.batch);
+    renderVendorNote(state.mac.batch ? null : state.mac.payload);
+  }
+
+  function setMacBusy(loading) {
+    state.mac.loading = loading;
+    D.setHidden("v2MacLoading", !loading);
+    if (loading) {
+      D.setHidden("v2MacError", true);
+      D.setHidden("v2MacEmpty", true);
+      D.setHidden("v2MacPager", true);
+      D.setText("v2MacCount", "…");
+      D.clear(doc("v2MacResults"));
+    }
+  }
+
+  function showMacError(message) {
+    D.setHidden("v2MacLoading", true);
+    D.setHidden("v2MacPager", true);
+    D.setHidden("v2MacEmpty", true);
+    D.clear(doc("v2MacResults"));
+    D.setText("v2MacCount", D.countDevices(0));
+    var box = doc("v2MacError");
+    if (box) {
+      box.hidden = false;
+      box.textContent = message;
+    }
+    renderVendorNote(null);
   }
 
   function resetMacResults(message) {
@@ -1669,13 +1854,16 @@
     if (container) {
       D.clear(container);
     }
-    D.setText("v2MacCount", 0);
+    D.setText("v2MacCount", D.countDevices(0));
+    D.setHidden("v2MacLoading", true);
+    D.setHidden("v2MacError", true);
+    D.setHidden("v2MacPager", true);
     var empty = doc("v2MacEmpty");
     if (empty) {
       empty.hidden = false;
       empty.textContent = message || D.tr("输入 MAC 后开始查询。");
     }
-    renderVendorNote([]);
+    renderVendorNote(null);
   }
 
   async function runMacSearch() {
@@ -1686,6 +1874,7 @@
     var isBatch = !!(batchToggle && batchToggle.checked);
     var button = doc("v2MacSearch");
     var query = input ? input.value.trim() : "";
+    var modeValue = mode ? mode.value : "auto";
     var lines = isBatch && batch
       ? batch.value.split(/\r?\n/).map(function (line) { return line.trim(); }).filter(Boolean)
       : [];
@@ -1697,32 +1886,116 @@
       D.toast(D.tr("请输入 MAC、前缀或后缀。"), true);
       return;
     }
+    if (isBatch && lines.length > 100) {
+      showMacError(D.tr("批量查询最多 100 行。"));
+      D.toast(D.tr("批量查询最多 100 行。"), true);
+      return;
+    }
+    if (isBatch) {
+      var invalid = [];
+      lines.forEach(function (line, index) {
+        var parsedLine = D.macKind(line, "auto");
+        if (!parsedLine.valid) {
+          invalid.push(D.tr("行号") + " " + (index + 1) + D.tr("：") + D.tr(parsedLine.error));
+        }
+      });
+      if (invalid.length) {
+        showMacError(invalid.join(D.tr("；")));
+        D.toast(invalid[0], true);
+        return;
+      }
+    } else {
+      var parsed = D.macKind(query, modeValue);
+      if (!parsed.valid) {
+        updateMacHint();
+        D.toast(D.tr(parsed.error), true);
+        return;
+      }
+    }
     setBusy(button, true, D.tr("查询中…"));
-    renderVendorNote([]);
+    setMacBusy(true);
     try {
       var payload;
       if (isBatch) {
-        payload = await D.API.macBatch(lines);
-        renderMacResults(payload, true);
+        payload = await D.API.macBatch(lines, 0, state.mac.limit);
+        state.mac.batch = true;
+        state.mac.groups = (payload.results || []).map(normalizeMacGroup);
+        state.mac.payload = null;
+        state.mac.offset = 0;
+        setMacBusy(false);
+        renderMacGroups();
         var total = (payload.results || []).reduce(function (sum, item) {
-          return sum + (item.count || 0);
+          return sum + Number(item.total || item.count || 0);
         }, 0);
         D.toast(D.tr("批量查询完成，共匹配 ") + D.countDevices(total), false);
       } else {
-        payload = await D.API.macLookup(query, mode ? mode.value : "auto");
-        renderMacResults(payload, false);
+        payload = await D.API.macLookup(query, modeValue, 0, state.mac.limit);
+        state.mac.batch = false;
+        state.mac.payload = payload;
+        state.mac.query = query;
+        state.mac.mode = modeValue;
+        state.mac.offset = 0;
+        setMacBusy(false);
+        renderMacGroups();
+        var found = Number(payload.total || payload.count || 0);
         D.toast(
-          payload.count
-            ? D.tr("找到 ") + D.countDevices(payload.count)
+          found
+            ? D.tr("找到 ") + D.countDevices(found)
             : D.tr("没有找到匹配设备"),
-          !payload.count
+          !found
         );
       }
     } catch (error) {
-      resetMacResults(error.message || D.tr("查询失败"));
-      D.toast(error.message || D.tr("查询失败"), true);
+      var message = D.translateMessage(error.message || D.tr("查询失败"));
+      setMacBusy(false);
+      showMacError(message);
+      D.toast(message, true);
     } finally {
       setBusy(button, false);
+    }
+  }
+
+  async function loadMacPage(offset) {
+    if (!state.mac.query) {
+      return;
+    }
+    var limit = state.mac.limit;
+    setMacBusy(true);
+    try {
+      var payload = await D.API.macLookup(state.mac.query, state.mac.mode, offset, limit);
+      state.mac.payload = payload;
+      state.mac.offset = payload.offset || offset;
+      setMacBusy(false);
+      renderMacGroups();
+    } catch (error) {
+      var message = D.translateMessage(error.message || D.tr("查询失败"));
+      setMacBusy(false);
+      showMacError(message);
+      D.toast(message, true);
+    }
+  }
+
+  async function loadMacGroupPage(index, offset) {
+    var group = state.mac.groups[index];
+    if (!group || group.error) {
+      return;
+    }
+    group.loading = true;
+    renderMacGroups();
+    try {
+      var payload = await D.API.macLookup(
+        group.query,
+        group.mode || "auto",
+        offset,
+        group.limit || state.mac.limit
+      );
+      state.mac.groups[index] = normalizeMacGroup(payload);
+      renderMacGroups();
+    } catch (error) {
+      group.loading = false;
+      group.error = error.message || D.tr("查询失败");
+      renderMacGroups();
+      D.toast(D.translateMessage(group.error), true);
     }
   }
 
@@ -1738,7 +2011,16 @@
     }
     if (hint) {
       hint.textContent = D.tr("等待输入");
+      hint.classList.remove("is-error");
     }
+    if (input) {
+      input.removeAttribute("aria-invalid");
+    }
+    state.mac.batch = false;
+    state.mac.groups = [];
+    state.mac.payload = null;
+    state.mac.query = "";
+    state.mac.offset = 0;
     resetMacResults(D.tr("输入 MAC 后开始查询。"));
   }
 
@@ -1755,6 +2037,10 @@
     }
     var toggle = doc("v2MacBatchToggle");
     var batch = doc("v2MacBatch");
+    var mode = doc("v2MacMode");
+    if (mode) {
+      mode.addEventListener("change", updateMacHint);
+    }
     if (toggle) {
       toggle.addEventListener("change", function () {
         if (batch) {
@@ -1763,6 +2049,7 @@
             batch.focus();
           }
         }
+        updateMacHint();
       });
     }
     var search = doc("v2MacSearch");
@@ -1772,6 +2059,18 @@
     var clear = doc("v2MacClear");
     if (clear) {
       clear.addEventListener("click", clearMacLookup);
+    }
+    var prev = doc("v2MacPrev");
+    if (prev) {
+      prev.addEventListener("click", function () {
+        loadMacPage(Math.max(0, state.mac.offset - state.mac.limit));
+      });
+    }
+    var next = doc("v2MacNext");
+    if (next) {
+      next.addEventListener("click", function () {
+        loadMacPage(state.mac.offset + state.mac.limit);
+      });
     }
   }
   /* ----------------------------------------------------------- saved MACs */

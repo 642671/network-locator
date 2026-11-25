@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 import threading
 import time
 from datetime import datetime, timedelta
@@ -15,6 +16,17 @@ from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
+BACKEND = ROOT / "backend"
+if str(BACKEND) not in sys.path:
+    sys.path.insert(0, str(BACKEND))
+
+from network_locator.oui import (  # noqa: E402
+    is_virtual_vendor,
+    mac_kind,
+    parse_query,
+    vendor_for_mac,
+)
+
 APP_ID = "network-locator"
 APP_VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 PREVIEW_VERSION = APP_VERSION + "-preview"
@@ -31,10 +43,12 @@ _PREVIEW_EN = {
     "访客 iPad": "Guest iPad",
     "智能插座": "Smart plug",
     "临时设备": "Temporary device",
+    "VM 虚拟机": "VM virtual machine",
     "Raspberry Pi 网关": "Raspberry Pi gateway",
     "客厅电视柜": "TV cabinet, living room",
     "设计部主力机": "Primary design workstation",
     "每日 02:00 备份": "Daily backup at 02:00",
+    "VMware 测试机": "VMware test VM",
     "预览示例数据": "Preview sample data",
     "首次发现": "First seen",
     "备注已更新": "Note updated",
@@ -468,7 +482,7 @@ def _v2_compact(value: object) -> str:
 
 
 def _v2_vendor(mac: object) -> str:
-    return _V2_VENDORS.get(_v2_compact(mac)[:6], "")
+    return vendor_for_mac(mac)
 
 
 def _v2_device(
@@ -504,12 +518,15 @@ def _v2_device(
         "status_reason_code": "preview_sample",
         "status_reason_args": [],
         "random_mac": False,
+        "mac_type": mac_kind(mac),
+        "virtual_adapter": is_virtual_vendor(_v2_vendor(mac)),
         "first_seen": first,
         "last_seen": last,
         "last_checked": last,
         "seen_count": 12,
         "search_text": " ".join([name, ip, mac, interface, network_id]),
     }
+    device["random_mac"] = device["mac_type"] == "local"
     device.update(extra)
     device["_base_name"] = name
     addresses = [
@@ -575,6 +592,7 @@ class V2PreviewState:
             _v2_device("dev-sample-7", "198.51.100.24", "24-F5-A2-AB-CD-EF", "智能插座", "enp2s0", "enp2s0|198.51.100.0/24", "unknown", 95),
             _v2_device("dev-sample-8", "192.0.2.150", "02-11-22-33-44-55", "临时设备", "enp1s0", "enp1s0|192.0.2.0/24", "online", 12, random_mac=True),
             _v2_device("dev-sample-9", "192.0.2.180", "B8-27-EB-12-34-56", "Raspberry Pi 网关", "enp1s0", "enp1s0|192.0.2.0/24", "online", 18),
+            _v2_device("dev-sample-10", "192.0.2.200", "00-50-56-9A-00-01", "VM 虚拟机", "enp1s0", "enp1s0|192.0.2.0/24", "online", 24, note="VMware 测试机"),
         ]
         old_ip = "192.0.2.80"
         target = self.devices[3]
@@ -917,53 +935,81 @@ class V2PreviewState:
             "stats": stats,
         }
 
-    def lookup_mac(self, query: str, mode: str = "auto") -> dict:
-        compact = _v2_compact(query)
-        if not compact:
-            raise ValueError("请输入完整的 MAC、前缀或后缀")
-        if mode not in {"auto", "full", "prefix", "suffix", "any"}:
-            mode = "auto"
-        if mode == "auto":
-            if len(compact) == 12:
-                mode = "full"
-            elif len(compact) == 6:
-                mode = "prefix"
-            elif len(compact) <= 4:
-                mode = "suffix"
-            else:
-                mode = "any"
+    def lookup_mac(
+        self, query: str, mode: str = "auto", limit: int = 50, offset: int = 0
+    ) -> dict:
+        parsed = parse_query(query, mode)
+        resolved_mode = str(parsed["mode"])
+        compact = str(parsed["hex"])
+        vendor = parsed.get("vendor") or None
+        try:
+            page_limit = max(1, min(int(limit), 500))
+        except (TypeError, ValueError):
+            page_limit = 50
+        try:
+            page_offset = max(0, int(offset))
+        except (TypeError, ValueError):
+            page_offset = 0
+        vendor_prefixes = list(vendor["prefixes"]) if vendor else []
         matches = []
         with self.lock:
             for device in self.devices:
                 matched = []
+                matched_addresses = []
                 for address in device.get("addresses") or []:
                     mac = _v2_compact(address.get("mac"))
                     if not mac:
                         continue
-                    if mode == "full" and mac != compact:
+                    if resolved_mode == "full" and mac != compact:
                         continue
-                    if mode == "prefix" and not mac.startswith(compact):
+                    if resolved_mode == "prefix" and not mac.startswith(compact):
                         continue
-                    if mode == "suffix" and not mac.endswith(compact):
+                    if resolved_mode == "suffix" and not mac.endswith(compact):
                         continue
-                    if mode == "any" and compact not in mac:
+                    if resolved_mode == "any" and compact not in mac:
+                        continue
+                    if resolved_mode == "vendor" and not any(
+                        mac.startswith(prefix) for prefix in vendor_prefixes
+                    ):
                         continue
                     matched.append(address.get("mac"))
+                    matched_addresses.append(
+                        {
+                            "mac": address.get("mac") or "",
+                            "ip": address.get("ip") or "",
+                            "last_seen": address.get("last_seen") or "",
+                        }
+                    )
                 if matched:
                     item = self._public(device)
                     item["matched_macs"] = matched
+                    item["matched_addresses"] = matched_addresses
                     item["live"] = False
                     matches.append(item)
+        total = len(matches)
         vendor_hint = None
-        if mode in {"full", "prefix"} and len(compact) >= 6:
-            vendor_hint = {"prefix": compact[:6], "vendor": _v2_vendor(compact[:6] + "000000")}
+        if resolved_mode == "vendor" and vendor:
+            vendor_hint = {
+                "vendor": vendor["name"],
+                "vendor_known": True,
+                "prefixes": vendor_prefixes,
+            }
+        elif resolved_mode in {"full", "prefix"} and len(compact) >= 6:
+            prefix = compact[:6]
+            name = _v2_vendor(prefix + "000000")
+            vendor_hint = {
+                "prefix": prefix,
+                "vendor": name,
+                "vendor_known": bool(name),
+            }
+        page_matches = matches[page_offset : page_offset + page_limit]
         return {
             "ok": True,
             "app": APP_ID,
             "version": PREVIEW_VERSION,
             "sample": True,
             "query": str(query),
-            "mode": mode,
+            "mode": resolved_mode,
             "hex": compact,
             "vendor_hint": vendor_hint,
             "vendor_prefixes": (
@@ -971,8 +1017,12 @@ class V2PreviewState:
                 if len(compact) >= 6 and _v2_vendor(compact[:6] + "000000")
                 else []
             ),
-            "matches": matches,
-            "count": len(matches),
+            "matches": page_matches,
+            "count": len(page_matches),
+            "total": total,
+            "limit": page_limit,
+            "offset": page_offset,
+            "has_more": page_offset + len(page_matches) < total,
         }
 
     def analysis(self) -> dict:
@@ -1241,7 +1291,12 @@ def v2_dispatch(method: str, path: str, body: dict):
                     return 404, {"ok": False, "error": "设备不存在"}
                 return 200, {"ok": True, "app": APP_ID, "version": PREVIEW_VERSION, "sample": True, "device": device}
             if rest in (["mac", "lookup"], ["mac"]):
-                return 200, V2.lookup_mac(one("q") or one("query"), one("mode", "auto"))
+                return 200, V2.lookup_mac(
+                    one("q") or one("query"),
+                    one("mode", "auto"),
+                    int(one("limit", "50") or 50),
+                    int(one("offset", "0") or 0),
+                )
             if rest == ["analysis"]:
                 return 200, V2.analysis()
             if rest == ["scans"]:
@@ -1308,16 +1363,31 @@ def v2_dispatch(method: str, path: str, body: dict):
                 queries = body.get("queries")
                 if not isinstance(queries, list) or not queries:
                     return 400, {"ok": False, "error": "请输入至少一个 MAC 查询"}
+                limit = int(body.get("limit") or 50)
+                offset = int(body.get("offset") or 0)
                 results = []
                 for query in queries[:100]:
                     text = str(query or "").strip()
                     if not text:
                         continue
                     try:
-                        result = V2.lookup_mac(text, "auto")
+                        result = V2.lookup_mac(text, "auto", limit, offset)
                         results.append(result)
                     except ValueError as exc:
-                        results.append({"query": text, "error": str(exc), "matches": [], "count": 0})
+                        results.append(
+                            {
+                                "query": text,
+                                "error": str(exc),
+                                "matches": [],
+                                "count": 0,
+                                "total": 0,
+                                "limit": limit,
+                                "offset": offset,
+                                "has_more": False,
+                                "mode": "",
+                                "hex": "",
+                            }
+                        )
                 return 200, {"ok": True, "app": APP_ID, "version": PREVIEW_VERSION, "sample": True, "results": results}
             if rest == ["analysis", "ping"]:
                 return 200, V2.ping(body)

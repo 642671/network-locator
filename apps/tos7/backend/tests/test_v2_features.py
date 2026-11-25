@@ -10,6 +10,7 @@ import time
 import unittest
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
@@ -25,10 +26,12 @@ from network_locator.oui import (  # noqa: E402
     classify_query,
     mac_kind,
     normalize_mac,
+    parse_query,
     vendor_count,
     vendor_for_mac,
 )
 from network_locator.store import SCHEMA_VERSION, Store  # noqa: E402
+from network_locator import v2_api  # noqa: E402
 
 
 def observation(mac: str, ip: str, *, state: str = "REACHABLE", scan_range: str = "10.0.0.0/24") -> dict:
@@ -299,6 +302,75 @@ class StoreIdentityTests(unittest.TestCase):
         self.assertEqual(self.store.lookup_mac("FFFF", "suffix")["count"], 0)
         self.assertEqual(self.store.list_devices()["devices"][0]["vendor"], "Apple")
 
+    def test_mac_lookup_vendor_random_virtual_and_validation(self) -> None:
+        self.store.ingest_observations(
+            [
+                observation("3C-07-54-9A-1B-2C", "192.0.2.44"),
+                observation("00-50-56-9A-00-01", "192.0.2.200"),
+                observation("02-11-22-33-44-55", "192.0.2.150"),
+                observation("4C-A6-4D-4A-8A-CD", "192.0.2.1"),
+            ]
+        )
+        full = self.store.lookup_mac("3c:07:54:9a:1b:2c")
+        self.assertEqual(full["mode"], "full")
+        self.assertEqual(full["count"], 1)
+        self.assertEqual(full["total"], 1)
+        vendor = self.store.lookup_mac("Apple")
+        self.assertEqual(vendor["mode"], "vendor")
+        self.assertEqual(vendor["total"], 1)
+        self.assertEqual(vendor["matches"][0]["vendor"], "Apple")
+        virtual = self.store.lookup_mac("VMware")
+        self.assertEqual(virtual["total"], 1)
+        self.assertTrue(virtual["matches"][0]["virtual_adapter"])
+        random_mac = self.store.lookup_mac("02-11-22-33-44-55")
+        self.assertTrue(random_mac["matches"][0]["random_mac"])
+        self.assertEqual(random_mac["matches"][0]["mac_type"], "local")
+        unknown = self.store.lookup_mac("4CA64D")
+        self.assertEqual(unknown["count"], 1)
+        self.assertEqual(unknown["matches"][0]["vendor"], "")
+        self.assertFalse(unknown["matches"][0]["vendor_known"])
+        self.assertFalse(unknown["vendor_hint"]["vendor_known"])
+        for query, mode in (
+            ("AA:BB:GG", "auto"),
+            ("12345", "auto"),
+            ("Acme", "auto"),
+            ("3C0754", "full"),
+            ("3C07549A", "prefix"),
+            ("1B2", "suffix"),
+        ):
+            with self.assertRaises(ValueError, msg=query):
+                self.store.lookup_mac(query, mode)
+
+    def test_mac_lookup_paginates_and_counts_all_matches(self) -> None:
+        observations = [
+            observation(f"{index:02X}-AA-BB-CC-1B-2C", f"10.1.{index // 200}.{index % 200 + 1}")
+            for index in range(120)
+        ]
+        self.store.ingest_observations(observations)
+        first = self.store.lookup_mac("1B2C", "suffix", limit=50, offset=0)
+        self.assertEqual(first["count"], 50)
+        self.assertEqual(first["total"], 120)
+        self.assertTrue(first["has_more"])
+        last = self.store.lookup_mac("1B2C", "suffix", limit=50, offset=100)
+        self.assertEqual(last["count"], 20)
+        self.assertEqual(last["total"], 120)
+        self.assertFalse(last["has_more"])
+        self.assertEqual({item["device_id"] for item in first["matches"]}.intersection(
+            {item["device_id"] for item in last["matches"]}
+        ), set())
+
+    def test_mac_lookup_finds_historical_address_and_links_device(self) -> None:
+        self.store.ingest_observations([observation("3C-07-54-9A-1B-2C", "192.0.2.44")])
+        first = self.store.list_devices()["devices"][0]
+        self.store.ingest_observations([observation("AA-BB-CC-DD-EE-FF", "192.0.2.44")])
+        second = self.store.list_devices()["devices"]
+        self.assertEqual(len(second), 1)
+        self.assertEqual(second[0]["device_id"], first["device_id"])
+        historical = self.store.lookup_mac("3C-07-54-9A-1B-2C")
+        self.assertEqual(historical["count"], 1)
+        self.assertEqual(historical["matches"][0]["device_id"], first["device_id"])
+        self.assertIn("3C-07-54-9A-1B-2C", historical["matches"][0]["matched_macs"])
+
 
 class OuiTests(unittest.TestCase):
     def test_normalization(self) -> None:
@@ -319,7 +391,67 @@ class OuiTests(unittest.TestCase):
         self.assertEqual(classify_query("3C07549A1B2C")[0], "full")
         self.assertEqual(classify_query("3C0754")[0], "prefix")
         self.assertEqual(classify_query("1B2C")[0], "suffix")
-        self.assertEqual(classify_query("7549A1B")[0], "any")
+        self.assertEqual(classify_query("7549A1B")[0], "invalid")
+        self.assertEqual(parse_query("7549A1B", "any")["mode"], "any")
+        self.assertEqual(parse_query("Apple")["vendor"]["name"], "Apple")
+
+
+class FakeV2Handler:
+    def __init__(self, store: Store, *, path: str = "/", body: dict | None = None) -> None:
+        self.path = path
+        self.body = body or {}
+        self.command = "POST" if body is not None else "GET"
+        self.status = 0
+        self.payload: dict = {}
+        self.server = SimpleNamespace(store=store, scan_manager=None)
+
+    def _read_json_body(self) -> dict:
+        return self.body
+
+    def _send_json(self, status: int, payload: dict, head_only: bool = False) -> None:
+        self.status = status
+        self.payload = payload
+
+
+class MacLookupApiTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = Store(Path(self.tmp.name) / "network-locator.sqlite")
+        self.store.ingest_observations(
+            [
+                observation("3C-07-54-9A-1B-2C", "192.0.2.44"),
+                observation("02-11-22-33-44-55", "192.0.2.150"),
+            ]
+        )
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_get_returns_vendor_query_with_paging_fields(self) -> None:
+        handler = FakeV2Handler(
+            self.store, path="/v2/mac/lookup?q=Apple&mode=auto&limit=10&offset=0"
+        )
+        v2_api._mac_lookup(handler, "GET")
+        self.assertEqual(handler.status, 200)
+        self.assertTrue(handler.payload["ok"])
+        self.assertEqual(handler.payload["mode"], "vendor")
+        self.assertEqual(handler.payload["total"], 1)
+        self.assertEqual(handler.payload["limit"], 10)
+
+    def test_batch_reports_per_line_errors_and_match_counts(self) -> None:
+        handler = FakeV2Handler(
+            self.store,
+            body={"queries": ["Apple", "Acme", "1B2C", "AA:BB:GG"], "limit": 50},
+        )
+        v2_api._mac_lookup(handler, "POST")
+        self.assertEqual(handler.status, 200)
+        results = handler.payload["results"]
+        self.assertEqual(len(results), 4)
+        self.assertEqual(results[0]["mode"], "vendor")
+        self.assertEqual(results[0]["total"], 1)
+        self.assertIn("未收录该厂商", results[1]["error"])
+        self.assertEqual(results[2]["total"], 1)
+        self.assertIn("MAC 只能包含", results[3]["error"])
 
 
 class DataModelTests(unittest.TestCase):

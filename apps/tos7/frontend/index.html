@@ -380,10 +380,10 @@
           <div class="v2-grid-2 v2-lookup-grid">
             <section class="v2-card">
               <header class="v2-card-header"><h2>查询 MAC</h2></header>
-              <p class="v2-card-copy">支持完整 MAC、OUI 前缀（6 位）或后缀（4 位），输入格式自动识别。</p>
+              <p class="v2-card-copy">支持完整 MAC、OUI 前缀（6 位）、后缀（4 位）或内置厂商名，输入格式自动识别并校验。</p>
               <div class="v2-field">
                 <label for="v2MacInput">MAC 地址 / 前缀 / 后缀</label>
-                <input id="v2MacInput" class="v2-input" type="text" placeholder="AA-BB-CC-DD-EE-FF / AA:BB:CC / 1A:2B" autocomplete="off" spellcheck="false">
+                <input id="v2MacInput" class="v2-input" type="text" placeholder="AA-BB-CC-DD-EE-FF / 3C:07:54 / 1B2C / Apple" autocomplete="off" spellcheck="false">
                 <p id="v2MacHint" class="v2-hint">等待输入</p>
               </div>
               <div class="v2-field">
@@ -398,7 +398,8 @@
               </div>
               <div class="v2-field">
                 <label class="v2-check"><input id="v2MacBatchToggle" type="checkbox"> 批量查询（每行一个）</label>
-                <textarea id="v2MacBatch" class="v2-textarea" hidden placeholder="AA-BB-CC-DD-EE-FF&#10;AA:BB:CC&#10;1A:2B"></textarea>
+                <textarea id="v2MacBatch" class="v2-textarea" hidden placeholder="AA-BB-CC-DD-EE-FF&#10;3C:07:54&#10;1B2C&#10;Apple"></textarea>
+                <p class="v2-hint">批量查询最多 100 行；每行一个完整 MAC、前缀、后缀或厂商名。</p>
               </div>
               <div class="v2-inline-actions">
                 <button id="v2MacSearch" class="v2-button v2-button-primary" type="button">查询</button>
@@ -412,9 +413,10 @@
                 <div><dt>完整 MAC</dt><dd>精确匹配设备地址记录</dd></div>
                 <div><dt>6 位前缀</dt><dd>识别 OUI 厂商并检索</dd></div>
                 <div><dt>4 位后缀</dt><dd>兼容原有的后四位定位</dd></div>
+                <div><dt>厂商名</dt><dd>按内置离线 OUI 表检索</dd></div>
                 <div><dt>数据来源</dt><dd>设备档案 + 当前扫描结果</dd></div>
               </dl>
-              <p class="v2-card-copy">厂商库覆盖常见 LAN 设备；未收录前缀会明确显示“未知厂商”，不会猜测。</p>
+              <p class="v2-card-copy">厂商库覆盖常见 LAN 设备；未收录前缀会明确显示“未知厂商”，不会猜测。随机 MAC 与虚拟网卡会单独标注。</p>
             </section>
           </div>
           <section class="v2-card v2-saved-macs" id="v2SavedMacsCard">
@@ -437,8 +439,15 @@
           </section>
           <section class="v2-card">
             <header class="v2-card-header"><h2>查询结果 <span id="v2MacCount" class="v2-count">0</span></h2></header>
+            <div id="v2MacError" class="v2-warning" hidden></div>
+            <div id="v2MacLoading" class="v2-loading" hidden><span class="v2-spinner"></span> 正在查询…</div>
             <div id="v2MacResults" class="v2-results"></div>
             <div id="v2MacEmpty" class="v2-empty-state">输入 MAC 后开始查询。</div>
+            <div id="v2MacPager" class="v2-pager" hidden>
+              <span id="v2MacPagerInfo" class="v2-muted"></span>
+              <button id="v2MacPrev" class="v2-button" type="button">上一页</button>
+              <button id="v2MacNext" class="v2-button" type="button">下一页</button>
+            </div>
           </section>
         </section>
 

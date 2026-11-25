@@ -162,6 +162,10 @@ class PackageContractTests(unittest.TestCase):
             'id="v2DrawerIpHistory"',
             'id="v2DrawerEvents"',
             'id="v2MacInput"',
+            'id="v2MacBatchToggle"',
+            'id="v2MacError"',
+            'id="v2MacLoading"',
+            'id="v2MacPager"',
         ):
             self.assertIn(marker, html, marker)
         self.assertLess(html.index('id="v2InvFilters"'), html.index('id="v2InvTableBody"'))
@@ -173,6 +177,8 @@ class PackageContractTests(unittest.TestCase):
             "networkLocator.v2.discoveryRanges.v1",
             "v2/devices/scan",
             "v2/scan/start",
+            "v2/mac/lookup",
+            "macBatch",
             "networklocator:scan-finished",
             "favorite",
             "note",

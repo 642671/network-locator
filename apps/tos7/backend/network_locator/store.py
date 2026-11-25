@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
-from .oui import mac_kind, normalize_mac, vendor_for_mac
+from .oui import is_virtual_vendor, mac_kind, normalize_mac, parse_query, vendor_for_mac
 
 SCHEMA_VERSION = 2
 APP_ID = "network-locator"
@@ -1256,89 +1256,154 @@ class Store:
         ]
 
     # ------------------------------------------------------------- MAC query
-    def lookup_mac(self, query: str, mode: str = "auto") -> dict[str, Any]:
-        compact = _compact(query)
-        if not compact:
-            raise ValueError("请输入完整的 MAC、前缀或后缀")
-        if mode not in {"auto", "full", "prefix", "suffix", "any"}:
-            mode = "auto"
-        if mode == "auto":
-            if len(compact) == 12:
-                mode = "full"
-            elif len(compact) == 6:
-                mode = "prefix"
-            elif len(compact) <= 4:
-                mode = "suffix"
-            else:
-                mode = "any"
-        if mode == "full":
+    def lookup_mac(
+        self,
+        query: str,
+        mode: str = "auto",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        parsed = parse_query(query, mode)
+        resolved_mode = str(parsed["mode"])
+        compact = str(parsed["hex"])
+        vendor = parsed.get("vendor") or None
+        try:
+            page_limit = max(1, min(int(limit), 500))
+        except (TypeError, ValueError):
+            page_limit = 50
+        try:
+            page_offset = max(0, int(offset))
+        except (TypeError, ValueError):
+            page_offset = 0
+        if resolved_mode == "vendor":
+            prefixes = list(vendor["prefixes"]) if vendor else []
+            if not prefixes:
+                raise ValueError("未收录该厂商；可改用 6 位 OUI 前缀查询")
+            clause = " OR ".join(
+                "REPLACE(a.mac, '-', '') LIKE ?" for _ in prefixes
+            )
+            parameters: list[Any] = [prefix + "%" for prefix in prefixes]
+        elif resolved_mode == "full":
             clause = "REPLACE(a.mac, '-', '') = ?"
-            parameter = compact
-        elif mode == "prefix":
+            parameters = [compact]
+        elif resolved_mode == "prefix":
             clause = "REPLACE(a.mac, '-', '') LIKE ?"
-            parameter = compact + "%"
-        elif mode == "suffix":
+            parameters = [compact + "%"]
+        elif resolved_mode == "suffix":
             clause = "REPLACE(a.mac, '-', '') LIKE ?"
-            parameter = "%" + compact
+            parameters = ["%" + compact]
         else:
             clause = "REPLACE(a.mac, '-', '') LIKE ?"
-            parameter = "%" + compact + "%"
+            parameters = ["%" + compact + "%"]
+        exists = (
+            "EXISTS (SELECT 1 FROM device_addresses a "
+            f"WHERE a.device_id = d.device_id AND ({clause}))"
+        )
         with self._lock, self._connect() as connection:
+            total = int(
+                connection.execute(
+                    f"SELECT COUNT(*) FROM devices d WHERE {exists}", parameters
+                ).fetchone()[0]
+            )
             rows = connection.execute(
-                "SELECT d.device_id, d.display_name, d.note, d.favorite, d.vendor, "
-                "d.mac_current, d.ip_current, d.interface_current, d.network_current, "
-                "d.status, d.status_state, d.last_seen, d.last_checked, d.random_mac, "
-                "a.mac AS matched_mac, a.ip AS matched_ip, a.last_seen AS matched_seen "
-                "FROM device_addresses a JOIN devices d ON d.device_id = a.device_id "
-                f"WHERE {clause} ORDER BY a.last_seen DESC LIMIT 500",
-                (parameter,),
+                f"SELECT d.* FROM devices d WHERE {exists} "
+                "ORDER BY d.last_seen DESC, d.device_id LIMIT ? OFFSET ?",
+                (*parameters, page_limit, page_offset),
             ).fetchall()
+            device_ids = [str(row["device_id"]) for row in rows]
+            matched_addresses: dict[str, list[dict[str, Any]]] = {}
+            if device_ids:
+                placeholders = ", ".join("?" for _ in device_ids)
+                address_rows = connection.execute(
+                    "SELECT device_id, mac, ip, last_seen FROM device_addresses "
+                    f"a WHERE a.device_id IN ({placeholders}) AND ({clause}) "
+                    "ORDER BY last_seen DESC",
+                    (*device_ids, *parameters),
+                ).fetchall()
+                for address in address_rows:
+                    matched_addresses.setdefault(str(address["device_id"]), []).append(
+                        {
+                            "mac": str(address["mac"] or ""),
+                            "ip": str(address["ip"] or ""),
+                            "last_seen": str(address["last_seen"] or ""),
+                        }
+                    )
         settings = self.get_settings()
         stale_minutes = int(settings["stale_after_minutes"])
-        grouped: dict[str, dict[str, Any]] = {}
+        matches: list[dict[str, Any]] = []
         for row in rows:
             device_id = str(row["device_id"])
-            entry = grouped.get(device_id)
-            if entry is None:
-                pseudo = {
-                    "display_name": row["display_name"],
-                    "vendor": row["vendor"],
-                    "mac_current": row["mac_current"],
-                }
-                checked = _parse_time(row["last_checked"])
-                status = _effective_status(row, stale_minutes)
-                entry = {
+            pseudo = {
+                "display_name": row["display_name"],
+                "vendor": row["vendor"],
+                "mac_current": row["mac_current"],
+            }
+            checked = _parse_time(row["last_checked"])
+            status = _effective_status(row, stale_minutes)
+            reason_code, reason_args = _status_reason_code(
+                status, str(row["status_state"] or ""), checked, stale_minutes
+            )
+            current_mac = str(row["mac_current"] or "")
+            current_vendor = str(row["vendor"] or "") or vendor_for_mac(current_mac)
+            mac_type = mac_kind(current_mac)
+            matches.append(
+                {
                     "device_id": device_id,
                     "name": _device_label(pseudo),
                     "display_name": row["display_name"] or "",
                     "favorite": bool(row["favorite"]),
-                    "vendor": row["vendor"] or "",
-                    "vendor_known": bool(row["vendor"]),
-                    "mac": row["mac_current"] or "",
+                    "vendor": current_vendor,
+                    "vendor_known": bool(current_vendor),
+                    "mac": current_mac,
                     "ip": row["ip_current"] or "",
                     "interface": row["interface_current"] or "",
                     "network_id": row["network_current"] or "",
                     "status": status,
                     "status_state": row["status_state"] or "",
-                    "status_reason": _status_reason(status, str(row["status_state"] or ""), checked, stale_minutes),
+                    "status_reason": _status_reason(
+                        status,
+                        str(row["status_state"] or ""),
+                        checked,
+                        stale_minutes,
+                    ),
+                    "status_reason_code": reason_code,
+                    "status_reason_args": reason_args,
                     "last_seen": row["last_seen"] or "",
-                    "random_mac": bool(row["random_mac"]),
-                    "matched_macs": [],
+                    "random_mac": bool(row["random_mac"]) or mac_type == "local",
+                    "mac_type": mac_type,
+                    "virtual_adapter": is_virtual_vendor(current_vendor),
+                    "matched_macs": [
+                        item["mac"] for item in matched_addresses.get(device_id, [])
+                    ],
+                    "matched_addresses": matched_addresses.get(device_id, []),
                 }
-                grouped[device_id] = entry
-            if row["matched_mac"] and row["matched_mac"] not in entry["matched_macs"]:
-                entry["matched_macs"].append(row["matched_mac"])
-        matches = sorted(grouped.values(), key=lambda item: str(item.get("last_seen") or ""), reverse=True)
+            )
         vendor_hint = None
-        if mode in {"full", "prefix"} and len(compact) >= 6:
-            vendor_hint = {"prefix": compact[:6], "vendor": vendor_for_mac(compact[:6] + "000000")}
+        if resolved_mode == "vendor" and vendor:
+            vendor_hint = {
+                "vendor": vendor["name"],
+                "vendor_known": True,
+                "prefixes": vendor["prefixes"],
+            }
+        elif resolved_mode in {"full", "prefix"} and len(compact) >= 6:
+            prefix = compact[:6]
+            name = vendor_for_mac(prefix + "000000")
+            vendor_hint = {
+                "prefix": prefix,
+                "vendor": name,
+                "vendor_known": bool(name),
+            }
         return {
             "query": str(query),
-            "mode": mode,
+            "mode": resolved_mode,
             "hex": compact,
             "vendor_hint": vendor_hint,
             "matches": matches,
             "count": len(matches),
+            "total": total,
+            "limit": page_limit,
+            "offset": page_offset,
+            "has_more": page_offset + len(matches) < total,
         }
 
     # ----------------------------------------------------------------- stats

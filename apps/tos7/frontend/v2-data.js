@@ -253,6 +253,8 @@
         return tr("超过 ") + (args[0] || 0) + tr(" 分钟未检测");
       case "preview_sample":
         return tr("预览示例数据");
+      case "live_not_persisted":
+        return tr("来自当前扫描结果，尚未写入设备档案");
       case "unknown":
         return tr("尚无明确结果");
       default:
@@ -386,21 +388,82 @@
     downloadCsv((prefix || "network-locator-scan") + "-" + stamp + ".csv", buildResultCsv(results, settings));
   }
 
-  function macKind(value) {
-    var compact = String(value || "").toUpperCase().replace(/[^0-9A-F]/g, "");
+  function macKind(value, mode) {
+    var raw = String(value || "").trim();
+    if (!raw) {
+      return { kind: "empty", compact: "", valid: false, error: "" };
+    }
+    var requested = mode && mode !== "auto" ? String(mode) : "";
+    if (/[^0-9A-Fa-f:\-. ]/.test(raw)) {
+      if (/^[A-Za-z0-9 ._-]{2,32}$/.test(raw)) {
+        return { kind: "vendor", compact: "", valid: true, error: "" };
+      }
+      return {
+        kind: "invalid",
+        compact: "",
+        valid: false,
+        error: "MAC 只能包含 0-9、A-F 以及 - : . 分隔符"
+      };
+    }
+    var compact = raw.replace(/[^0-9A-Fa-f]/g, "").toUpperCase();
     if (!compact) {
-      return { kind: "empty", compact: "" };
+      return {
+        kind: "invalid",
+        compact: "",
+        valid: false,
+        error: "请输入完整的 MAC、前缀或后缀"
+      };
+    }
+    if (requested === "full" && compact.length !== 12) {
+      return {
+        kind: "invalid",
+        compact: compact,
+        valid: false,
+        error: "完整 MAC 需要 12 位十六进制字符"
+      };
+    }
+    if (requested === "prefix" && compact.length !== 6) {
+      return {
+        kind: "invalid",
+        compact: compact,
+        valid: false,
+        error: "前缀查询需要 6 位十六进制字符（OUI）"
+      };
+    }
+    if (requested === "suffix" && compact.length !== 4) {
+      return {
+        kind: "invalid",
+        compact: compact,
+        valid: false,
+        error: "后缀查询需要 4 位十六进制字符"
+      };
+    }
+    if (requested === "any" && compact.length < 2) {
+      return {
+        kind: "invalid",
+        compact: compact,
+        valid: false,
+        error: "包含片段查询至少需要 2 位十六进制字符"
+      };
+    }
+    if (requested) {
+      return { kind: requested, compact: compact, valid: true, error: "" };
     }
     if (compact.length === 12) {
-      return { kind: "full", compact: compact };
+      return { kind: "full", compact: compact, valid: true, error: "" };
     }
     if (compact.length === 6) {
-      return { kind: "prefix", compact: compact };
+      return { kind: "prefix", compact: compact, valid: true, error: "" };
     }
-    if (compact.length <= 4) {
-      return { kind: "suffix", compact: compact };
+    if (compact.length === 4) {
+      return { kind: "suffix", compact: compact, valid: true, error: "" };
     }
-    return { kind: "any", compact: compact };
+    return {
+      kind: "invalid",
+      compact: compact,
+      valid: false,
+      error: "无法自动识别该查询格式；请选择完整 MAC、前缀、后缀或包含片段"
+    };
   }
 
   function emptyState(container, message, kind) {
@@ -450,13 +513,21 @@
     inventoryScan: function (body) {
       return request("v2/devices/scan", body || {}, { timeoutMs: 180000 });
     },
-    macLookup: function (query, mode) {
-      return request(
-        "v2/mac/lookup?q=" + encodeURIComponent(query) + "&mode=" + encodeURIComponent(mode || "auto")
-      );
+    macLookup: function (query, mode, offset, limit) {
+      var params = [
+        "q=" + encodeURIComponent(query),
+        "mode=" + encodeURIComponent(mode || "auto"),
+        "limit=" + encodeURIComponent(limit || 50),
+        "offset=" + encodeURIComponent(offset || 0)
+      ];
+      return request("v2/mac/lookup?" + params.join("&"));
     },
-    macBatch: function (queries) {
-      return request("v2/mac/lookup", { queries: queries });
+    macBatch: function (queries, offset, limit) {
+      return request("v2/mac/lookup", {
+        queries: queries,
+        offset: offset || 0,
+        limit: limit || 50
+      });
     },
     analysis: function () { return request("v2/analysis"); },
     ping: function (body) {

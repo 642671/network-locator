@@ -11,7 +11,10 @@ test("macKind classifies full, prefix, suffix and fragment queries", () => {
   assert.equal(data.macKind("3C-07-54-9A-1B-2C").kind, "full");
   assert.equal(data.macKind("3C0754").kind, "prefix");
   assert.equal(data.macKind("1B2C").kind, "suffix");
-  assert.equal(data.macKind("7549A1B").kind, "any");
+  assert.equal(data.macKind("7549A1B").kind, "invalid");
+  assert.equal(data.macKind("7549A1B", "any").kind, "any");
+  assert.equal(data.macKind("Apple").kind, "vendor");
+  assert.equal(data.macKind("AA:BB:GG").kind, "invalid");
   assert.equal(data.macKind("").kind, "empty");
   assert.equal(data.macKind("aa:bb:cc").compact, "AABBCC");
 });

@@ -1296,10 +1296,14 @@ function apiFailure(kind, url, detail, status) {
     offline: t("应用服务返回了错误"),
     rejected: t("请求未被接受")
   };
-  var error = new Error(labels[kind] + t("：") + detail);
+  var i18n = window.NetworkLocatorI18n;
+  var localized = i18n && typeof i18n.translateMessage === "function"
+    ? i18n.translateMessage(String(detail || ""))
+    : String(detail || "");
+  var error = new Error(labels[kind] + t("：") + localized);
   error.kind = kind;
   error.url = url;
-  error.detail = detail;
+  error.detail = localized;
   error.status = status || 0;
   return error;
 }

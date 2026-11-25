@@ -219,16 +219,32 @@ _VENDORS: dict[str, str] = {
     "2CCF67": "Raspberry Pi",
 }
 
-_PREFIX_ALIASES = {
-    "VMWARE": ["000C29", "000569", "001C14", "005056"],
-    "APPLE": ["000393", "001124", "3C0754", "8C8590", "F4F15A"],
-    "SAMSUNG": ["0015B9", "002454", "4C3C16", "8C7712"],
-    "INTEL": ["000347", "001B21", "3C9509", "8C1645"],
-    "TP-LINK": ["0019E0", "50C7BF", "94D9B3", "F4F26D"],
-    "XIAOMI": ["286C07", "64B473", "78110F", "8CBEBE"],
-    "HUAWEI": ["0018B8", "00259E", "48DB50", "AC853D"],
-    "ESPRESSIF": ["24F5A2", "3C71BF", "84F3EB", "DC4F22"],
-}
+# MACs from these vendors are usually virtual adapters rather than physical LAN
+# hardware. The UI labels them, but they are still valid device records.
+VIRTUAL_VENDORS = frozenset(
+    {
+        "VMware",
+        "VirtualBox",
+        "Microsoft Hyper-V",
+        "Parallels",
+        "Xensource",
+        "QEMU/KVM",
+    }
+)
+
+QUERY_MODES = ("auto", "full", "prefix", "suffix", "any", "vendor")
+
+_HEX_DIGITS = frozenset("0123456789ABCDEFabcdef")
+_SEPARATORS = frozenset("-:. ")
+
+
+def _vendor_key(name: object) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(name or "").upper())
+
+
+_VENDOR_ALIASES: dict[str, list[str]] = {}
+for _prefix, _vendor in _VENDORS.items():
+    _VENDOR_ALIASES.setdefault(_vendor_key(_vendor), []).append(_prefix)
 
 
 def normalize_mac(value: object) -> str:
@@ -268,8 +284,92 @@ def mac_kind(value: object) -> str:
     return "universal"
 
 
+def is_virtual_vendor(name: object) -> bool:
+    return str(name or "") in VIRTUAL_VENDORS
+
+
 def prefixes_for_name(name: str) -> list[str]:
-    return list(_PREFIX_ALIASES.get(str(name or "").upper(), []))
+    """Return every known OUI prefix for a vendor name (case/punctuation free)."""
+
+    return sorted(set(_VENDOR_ALIASES.get(_vendor_key(name), [])))
+
+
+def vendor_from_query(value: object) -> dict | None:
+    """Resolve a vendor name such as ``Apple`` to its canonical name and OUIs."""
+
+    prefixes = prefixes_for_name(str(value or ""))
+    if not prefixes:
+        return None
+    return {"name": _VENDORS[prefixes[0]], "prefixes": prefixes}
+
+
+def parse_query(value: object, mode: str = "auto") -> dict:
+    """Validate and classify a MAC, OUI prefix, suffix, fragment or vendor name.
+
+    Raises ``ValueError`` with a user-facing Chinese message. The caller turns
+    those into 400 responses; the browser localizes them for English mode.
+    """
+
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValueError("请输入完整的 MAC、前缀或后缀")
+    requested = mode if mode in QUERY_MODES else "auto"
+    compact_chars = []
+    invalid_characters = []
+    for character in raw:
+        if character in _HEX_DIGITS:
+            compact_chars.append(character.upper())
+        elif character in _SEPARATORS:
+            continue
+        else:
+            invalid_characters.append(character)
+    compact = "".join(compact_chars)
+    # Non-hex letters can only be a vendor name. Reject symbols outright.
+    if invalid_characters:
+        looks_like_mac = (
+            any(character in raw for character in "-:.")
+            and sum(1 for character in raw if character in _HEX_DIGITS) >= 4
+        )
+        if looks_like_mac and requested != "vendor":
+            raise ValueError("MAC 只能包含 0-9、A-F 以及 - : . 分隔符")
+        vendor = vendor_from_query(raw)
+        if vendor and requested in {"auto", "prefix", "vendor"}:
+            return {
+                "input": raw,
+                "mode": "vendor",
+                "hex": "",
+                "vendor": vendor,
+            }
+        if requested == "auto":
+            if re.fullmatch(r"[A-Za-z0-9 ._-]{2,32}", raw):
+                raise ValueError("未收录该厂商；可改用 6 位 OUI 前缀查询")
+            raise ValueError("MAC 只能包含 0-9、A-F 以及 - : . 分隔符")
+        raise ValueError("该查询方式需要十六进制字符")
+    if not compact:
+        raise ValueError("请输入完整的 MAC、前缀或后缀")
+    if requested == "vendor":
+        vendor = vendor_from_query(raw)
+        if vendor is None:
+            raise ValueError("未收录该厂商；可改用 6 位 OUI 前缀查询")
+        return {"input": raw, "mode": "vendor", "hex": "", "vendor": vendor}
+    if requested == "auto":
+        if len(compact) == 12:
+            requested = "full"
+        elif len(compact) == 6:
+            requested = "prefix"
+        elif len(compact) == 4:
+            requested = "suffix"
+        else:
+            raise ValueError("无法自动识别该查询格式；请选择完整 MAC、前缀、后缀或包含片段")
+    if requested == "full" and len(compact) != 12:
+        raise ValueError("完整 MAC 需要 12 位十六进制字符")
+    if requested == "prefix" and len(compact) != 6:
+        raise ValueError("前缀查询需要 6 位十六进制字符（OUI）")
+    if requested == "suffix" and len(compact) != 4:
+        raise ValueError("后缀查询需要 4 位十六进制字符")
+    if requested == "any" and len(compact) < 2:
+        raise ValueError("包含片段查询至少需要 2 位十六进制字符")
+    return {"input": raw, "mode": requested, "hex": compact, "vendor": None}
 
 
 def lookup_vendor_prefixes(value: object) -> list[dict]:
@@ -290,17 +390,10 @@ def vendor_count() -> int:
 
 
 def classify_query(value: object) -> tuple[str, str]:
-    """Classify a MAC query as full/prefix/suffix/any and normalize its hex."""
+    """Compatibility wrapper around :func:`parse_query`."""
 
-    compact = mac_compact(value)
-    if not compact:
+    try:
+        parsed = parse_query(value, "auto")
+    except ValueError:
         return "invalid", ""
-    if len(compact) == 12:
-        return "full", compact
-    if len(compact) == 6:
-        return "prefix", compact
-    if len(compact) == 4:
-        return "suffix", compact
-    if len(compact) < 6:
-        return "suffix", compact
-    return "any", compact
+    return parsed["mode"], parsed["hex"]

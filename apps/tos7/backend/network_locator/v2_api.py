@@ -28,7 +28,14 @@ from .core import (
     read_dns_servers,
     select_network_targets,
 )
-from .oui import classify_query, lookup_vendor_prefixes, vendor_count
+from .oui import (
+    is_virtual_vendor,
+    lookup_vendor_prefixes,
+    mac_kind,
+    vendor_count,
+    vendor_for_mac,
+    vendor_from_query,
+)
 from .store import SCHEMA_VERSION, Store
 
 MAX_BATCH_LOOKUPS = 100
@@ -382,7 +389,12 @@ def _live_mac_matches(handler: Any, query: str, mode: str) -> list[dict[str, Any
         character for character in str(query or "").upper()
         if character in "0123456789ABCDEF"
     )
-    if not compact:
+    vendor_prefixes: list[str] = []
+    if mode == "vendor":
+        vendor = vendor_from_query(query)
+        vendor_prefixes = list(vendor["prefixes"]) if vendor else []
+        compact = ""
+    if not compact and not vendor_prefixes:
         return []
     matches: list[dict[str, Any]] = []
     for item in status.get("results") or []:
@@ -397,14 +409,20 @@ def _live_mac_matches(handler: Any, query: str, mode: str) -> list[dict[str, Any
             continue
         if mode == "any" and compact not in mac:
             continue
+        if mode == "vendor" and not any(
+            mac.startswith(prefix) for prefix in vendor_prefixes
+        ):
+            continue
+        vendor = vendor_for_mac(mac)
+        mac_type = mac_kind(mac)
         matches.append(
             {
                 "device_id": "",
                 "name": "扫描结果 " + mac[-4:],
                 "display_name": "",
                 "favorite": False,
-                "vendor": "",
-                "vendor_known": False,
+                "vendor": vendor,
+                "vendor_known": bool(vendor),
                 "mac": str(item.get("mac") or ""),
                 "ip": str(item.get("ip") or ""),
                 "interface": str(item.get("interface") or ""),
@@ -414,8 +432,12 @@ def _live_mac_matches(handler: Any, query: str, mode: str) -> list[dict[str, Any
                 else "unknown",
                 "status_state": str(item.get("state") or ""),
                 "status_reason": "来自当前扫描结果，尚未写入设备档案",
+                "status_reason_code": "live_not_persisted",
+                "status_reason_args": [],
                 "last_seen": status.get("finished_at") or status.get("started_at") or "",
-                "random_mac": False,
+                "random_mac": mac_type == "local",
+                "mac_type": mac_type,
+                "virtual_adapter": is_virtual_vendor(vendor),
                 "matched_macs": [str(item.get("mac") or "")],
                 "live": True,
             }
@@ -430,19 +452,32 @@ def _mac_lookup(handler: Any, method: str) -> None:
         query = _one(values, "q") or _one(values, "query")
         mode = _one(values, "mode", "auto")
         try:
-            result = store.lookup_mac(query, mode)
+            limit = max(1, min(int(_one(values, "limit", "50") or 50), 200))
+        except ValueError:
+            limit = 50
+        try:
+            offset = max(0, int(_one(values, "offset", "0") or 0))
+        except ValueError:
+            offset = 0
+        try:
+            result = store.lookup_mac(query, mode, limit, offset)
         except ValueError as exc:
             raise V2Error(400, str(exc)) from exc
-        live = _live_mac_matches(handler, query, result["mode"])
+        live = _live_mac_matches(handler, query, result["mode"]) if offset == 0 else []
         if live:
             known = {item["mac"].replace("-", "") for item in result["matches"]}
-            result["matches"].extend(
+            added = [
                 item for item in live if item["mac"].replace("-", "") not in known
-            )
+            ]
+            result["matches"].extend(added)
             result["count"] = len(result["matches"])
-        kind, compact = classify_query(query)
-        result["input_kind"] = kind
-        result["vendor_prefixes"] = lookup_vendor_prefixes(compact) if compact else []
+            if added:
+                result["total"] = int(result.get("total") or 0) + len(added)
+                result["has_more"] = offset + result["count"] < result["total"]
+        result["input_kind"] = result["mode"]
+        result["vendor_prefixes"] = (
+            lookup_vendor_prefixes(result["hex"]) if result.get("hex") else []
+        )
         handler._send_json(200, {"ok": True, **result}, head_only=handler.command == "HEAD")
         return
     if method == "POST":
@@ -454,26 +489,52 @@ def _mac_lookup(handler: Any, method: str) -> None:
             raise V2Error(400, "请输入至少一个 MAC 查询")
         if len(raw_queries) > MAX_BATCH_LOOKUPS:
             raise V2Error(400, f"一次最多查询 {MAX_BATCH_LOOKUPS} 个 MAC")
+        try:
+            limit = max(1, min(int(body.get("limit") or 50), 200))
+        except (TypeError, ValueError):
+            limit = 50
+        try:
+            offset = max(0, int(body.get("offset") or 0))
+        except (TypeError, ValueError):
+            offset = 0
         results = []
         for query in raw_queries:
             text = str(query or "").strip()
             if not text:
                 continue
             try:
-                result = store.lookup_mac(text, "auto")
+                result = store.lookup_mac(text, "auto", limit, offset)
             except ValueError as exc:
-                results.append({"query": text, "error": str(exc), "matches": [], "count": 0})
+                results.append(
+                    {
+                        "query": text,
+                        "error": str(exc),
+                        "matches": [],
+                        "count": 0,
+                        "total": 0,
+                        "limit": limit,
+                        "offset": offset,
+                        "has_more": False,
+                        "mode": "",
+                        "hex": "",
+                    }
+                )
                 continue
-            live = _live_mac_matches(handler, text, result["mode"])
+            live = _live_mac_matches(handler, text, result["mode"]) if offset == 0 else []
             if live:
                 known = {item["mac"].replace("-", "") for item in result["matches"]}
-                result["matches"].extend(
+                added = [
                     item for item in live if item["mac"].replace("-", "") not in known
-                )
+                ]
+                result["matches"].extend(added)
                 result["count"] = len(result["matches"])
-            kind, compact = classify_query(text)
-            result["input_kind"] = kind
-            result["vendor_prefixes"] = lookup_vendor_prefixes(compact) if compact else []
+                if added:
+                    result["total"] = int(result.get("total") or 0) + len(added)
+                    result["has_more"] = offset + result["count"] < result["total"]
+            result["input_kind"] = result["mode"]
+            result["vendor_prefixes"] = (
+                lookup_vendor_prefixes(result["hex"]) if result.get("hex") else []
+            )
             results.append(result)
         handler._send_json(200, {"ok": True, "results": results})
         return
