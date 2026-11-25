@@ -568,6 +568,8 @@ def _v2_device(
 class V2PreviewState:
     def __init__(self) -> None:
         self.lock = threading.Lock()
+        self.storage_directory = "/var/lib/network-locator"
+        self.storage_path = self.storage_directory + "/preview.sqlite"
         self.settings = {
             "scan_timeout_ms": 1200,
             "scan_concurrency": 64,
@@ -1298,16 +1300,58 @@ class V2PreviewState:
             "sample": True,
             "settings": dict(self.settings),
             "storage": {
-                "path": "/var/lib/network-locator/preview.sqlite",
-                "directory": "/var/lib/network-locator",
+                "path": self.storage_path,
+                "directory": self.storage_directory,
+                "base_directory": "/var/lib/network-locator",
+                "is_default": self.storage_directory == "/var/lib/network-locator",
+                "relocatable": True,
                 "size_bytes": 245760,
                 "writable": True,
                 "sample": True,
             },
+            "automation": self.automation_payload(),
             "vendor_count": 205,
             "schema_version": 2,
-            "capabilities": ["store/sqlite", "devices", "scan-history", "mac-lookup", "network-analysis", "custom-ranges", "pause-resume", "network-scan"],
+            "capabilities": ["store/sqlite", "devices", "scan-history", "mac-lookup", "network-analysis", "custom-ranges", "pause-resume", "network-scan", "storage-migration", "auto-scan-service"],
         }
+
+    def automation_payload(self) -> dict:
+        enabled = bool(self.settings.get("auto_scan_enabled"))
+        minutes = max(1, int(self.settings.get("auto_scan_interval_minutes") or 30))
+        return {
+            "managed": True,
+            "thread_alive": True,
+            "enabled": enabled,
+            "interval_minutes": minutes,
+            "seconds_until_next": minutes * 60 if enabled else 0,
+            "last_run_at": "",
+            "last_error": "",
+            "sample": True,
+        }
+
+    def update_storage(self, directory: object) -> dict:
+        text = str(directory or "").strip().rstrip("/")
+        if not text:
+            raise ValueError("存储目录不能为空")
+        if not text.startswith("/"):
+            raise ValueError("存储目录必须是绝对路径")
+        base = "/var/lib/network-locator"
+        if text != base and not text.startswith(base + "/"):
+            raise ValueError(f"存储目录必须位于应用数据目录 {base} 内")
+        with self.lock:
+            self.storage_directory = text
+            self.storage_path = text + "/preview.sqlite"
+            return {
+                "path": self.storage_path,
+                "directory": self.storage_directory,
+                "base_directory": base,
+                "is_default": text == base,
+                "relocatable": True,
+                "size_bytes": 245760,
+                "writable": True,
+                "sample": True,
+                "migrated": True,
+            }
 
     def update_settings(self, patch: dict) -> dict:
         limits = {
@@ -1328,13 +1372,28 @@ class V2PreviewState:
                         raise ValueError(key + " 超出范围")
                     self.settings[key] = number
                 elif key in {"auto_scan_enabled", "csv_include_header", "csv_bom"}:
-                    self.settings[key] = bool(value)
+                    if isinstance(value, bool):
+                        self.settings[key] = value
+                    elif value in (0, 1):
+                        self.settings[key] = bool(value)
+                    else:
+                        raise ValueError(key + " must be true or false")
                 elif key == "csv_delimiter":
                     text = str(value or "")
                     if text not in {",", ";", "\t"}:
                         raise ValueError("csv_delimiter 必须是逗号、分号或制表符")
                     self.settings[key] = text
-                elif key in {"theme", "locale", "default_interface"}:
+                elif key == "theme":
+                    text = str(value or "")
+                    if text not in {"light", "dark", "system"}:
+                        raise ValueError("theme 必须是 light、dark 或 system")
+                    self.settings[key] = text
+                elif key == "locale":
+                    text = str(value or "")
+                    if text not in {"zh", "en"}:
+                        raise ValueError("locale 必须是 zh 或 en")
+                    self.settings[key] = text
+                elif key == "default_interface":
                     self.settings[key] = str(value or "")
             return dict(self.settings)
 
@@ -1518,9 +1577,28 @@ def v2_dispatch(method: str, path: str, body: dict):
                     return 404, {"ok": False, "error": "设备不存在"}
                 return 200, {"ok": True, "app": APP_ID, "version": PREVIEW_VERSION, "sample": True, "device": device}
             if rest == ["settings"]:
-                return 200, {"ok": True, "app": APP_ID, "version": PREVIEW_VERSION, "sample": True, "settings": V2.update_settings(body)}
+                settings = V2.update_settings(body)
+                return 200, {
+                    "ok": True,
+                    "app": APP_ID,
+                    "version": PREVIEW_VERSION,
+                    "sample": True,
+                    "settings": settings,
+                    "storage": V2.settings_payload()["storage"],
+                    "automation": V2.automation_payload(),
+                }
             return 404, None
         if method == "POST":
+            if rest == ["settings", "storage"]:
+                return 200, {
+                    "ok": True,
+                    "app": APP_ID,
+                    "version": PREVIEW_VERSION,
+                    "sample": True,
+                    "storage": V2.update_storage(body.get("directory")),
+                    "settings": dict(V2.settings),
+                    "automation": V2.automation_payload(),
+                }
             if rest == ["scan", "start"]:
                 return preview_scan_start(body)
             if rest in (["scan", "pause"], ["scan", "resume"], ["scan", "stop"]):

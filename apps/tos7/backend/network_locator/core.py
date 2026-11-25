@@ -1093,6 +1093,7 @@ class ScanManager:
             "selected_network_ids": [],
             "custom_ranges": [],
             "custom_only": False,
+            "default_interface": "",
             "started_at": None,
             "finished_at": None,
             "networks": [],
@@ -1128,8 +1129,10 @@ class ScanManager:
         custom_ranges: Sequence[str] | None = None,
         custom_only: bool = False,
         scan_all: bool = False,
+        default_interface: str = "",
     ) -> bool:
         requested_scan_all = bool(scan_all)
+        requested_default_interface = str(default_interface or "").strip()
         normalized = [] if requested_scan_all else normalize_mac_suffixes(suffixes)
         selected_network_ids = normalize_network_ids(network_ids)
         normalized_ranges = normalize_custom_ranges(custom_ranges)
@@ -1159,6 +1162,7 @@ class ScanManager:
                     "selected_network_ids": selected_network_ids or [],
                     "custom_ranges": normalized_ranges,
                     "custom_only": self._custom_only,
+                    "default_interface": requested_default_interface,
                     "started_at": datetime.now().isoformat(timespec="seconds"),
                 }
             )
@@ -1172,6 +1176,7 @@ class ScanManager:
                     normalized_ranges,
                     self._custom_only,
                     self._scan_all,
+                    requested_default_interface,
                 ),
                 name="lan-mac-scan",
                 daemon=True,
@@ -1270,6 +1275,7 @@ class ScanManager:
         custom_ranges: list[str] | None = None,
         custom_only: bool = False,
         scan_all: bool = False,
+        default_interface: str = "",
     ) -> None:
         try:
             targets, warnings = self._discover()
@@ -1277,6 +1283,19 @@ class ScanManager:
                 targets = build_custom_targets(custom_ranges, targets)
                 missing: list[str] = []
             else:
+                if selected_network_ids is None and default_interface:
+                    default_ids = [
+                        network_target_key(item)
+                        for item in targets
+                        if item.interface == default_interface
+                    ]
+                    if default_ids:
+                        selected_network_ids = default_ids
+                        self._update(selected_network_ids=default_ids)
+                    else:
+                        warnings = warnings + [
+                            f"默认网卡 {default_interface} 当前不可用，已自动选择所有网段"
+                        ]
                 targets, missing = select_network_targets(targets, selected_network_ids)
                 targets = merge_custom_targets(targets, custom_ranges or [])
             if missing:

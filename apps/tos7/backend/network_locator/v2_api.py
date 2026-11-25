@@ -9,6 +9,8 @@ graph and test surface.
 from __future__ import annotations
 
 import inspect
+import threading
+import time
 import uuid
 from datetime import datetime
 from typing import Any, Mapping
@@ -20,6 +22,7 @@ from .core import (
     discover_networks,
     max_configured_hosts,
     merge_custom_targets,
+    network_target_key,
     network_target_payload,
     normalize_custom_ranges,
     normalize_network_ids,
@@ -217,16 +220,33 @@ def _device_detail(handler: Any, method: str, device_id: str) -> None:
     raise V2Error(405, "method not allowed")
 
 
-def _inventory_scan(handler: Any) -> None:
-    store = _store(handler)
-    manager = _manager(handler)
-    body = handler._read_json_body()
-    try:
-        network_ids = normalize_network_ids(body.get("network_ids"))
-        custom_ranges = normalize_custom_ranges(body.get("custom_ranges"))
-    except ValueError as exc:
-        raise V2Error(400, str(exc)) from exc
-    lock = getattr(handler.server, "device_scan_lock", None)
+def _default_interface_ids(
+    targets: list[Any],
+    network_ids: list[str] | None,
+    default_interface: str,
+) -> tuple[list[str] | None, list[str]]:
+    interface = str(default_interface or "").strip()
+    if network_ids is not None or not interface:
+        return network_ids, []
+    matching = [
+        network_target_key(item) for item in targets if item.interface == interface
+    ]
+    if matching:
+        return matching, []
+    return None, [f"默认网卡 {interface} 当前不可用，已自动选择所有网段"]
+
+
+def run_inventory_scan(
+    store: Store,
+    manager: ScanManager,
+    lock: Any,
+    *,
+    network_ids: list[str] | None = None,
+    custom_ranges: list[str] | None = None,
+    kind: str = "inventory",
+) -> dict[str, Any]:
+    """Run one inventory scan and persist its task without going through HTTP."""
+
     if lock is None:
         raise V2Error(503, "扫描锁不可用")
     if not lock.acquire(blocking=False):
@@ -235,8 +255,13 @@ def _inventory_scan(handler: Any) -> None:
         if manager.status().get("running"):
             raise V2Error(409, "另一个扫描任务正在进行中")
         targets, warnings = discover_networks()
+        settings = store.get_settings()
+        network_ids, default_warnings = _default_interface_ids(
+            targets, network_ids, str(settings.get("default_interface") or "")
+        )
+        warnings = warnings + default_warnings
         targets, missing = select_network_targets(targets, network_ids)
-        targets = merge_custom_targets(targets, custom_ranges)
+        targets = merge_custom_targets(targets, custom_ranges or [])
         if missing:
             warnings = warnings + ["所选网段当前不可用：" + "、".join(missing)]
         if not targets:
@@ -257,7 +282,7 @@ def _inventory_scan(handler: Any) -> None:
                 payload["network_id"] for payload in network_payloads
             ],
             "suffixes": [],
-            "custom_ranges": custom_ranges,
+            "custom_ranges": custom_ranges or [],
             "total_hosts": total,
             "probed_hosts": total,
             "results": devices,
@@ -265,22 +290,161 @@ def _inventory_scan(handler: Any) -> None:
             "error": "",
         }
         task = store.record_scan_task(
-            snapshot, kind="inventory", custom_ranges=custom_ranges
+            snapshot, kind=kind, custom_ranges=custom_ranges or []
         )
         result = store.list_devices(limit=500)
-        handler._send_json(
-            200,
-            {
-                "ok": True,
-                "devices": result["devices"],
-                "total": result["total"],
-                "task": task,
-                "warnings": warnings + probe_warnings,
-                "stats": store.stats(),
-            },
-        )
+        return {
+            "ok": True,
+            "devices": result["devices"],
+            "total": result["total"],
+            "task": task,
+            "warnings": warnings + probe_warnings,
+            "stats": store.stats(),
+        }
     finally:
         lock.release()
+
+
+def _inventory_scan(handler: Any) -> None:
+    store = _store(handler)
+    manager = _manager(handler)
+    body = handler._read_json_body()
+    try:
+        network_ids = normalize_network_ids(body.get("network_ids"))
+        custom_ranges = normalize_custom_ranges(body.get("custom_ranges"))
+    except ValueError as exc:
+        raise V2Error(400, str(exc)) from exc
+    lock = getattr(handler.server, "device_scan_lock", None)
+    handler._send_json(
+        200,
+        run_inventory_scan(
+            store,
+            manager,
+            lock,
+            network_ids=network_ids,
+            custom_ranges=custom_ranges,
+            kind="inventory",
+        ),
+    )
+
+
+class AutoScanScheduler:
+    """Run the persisted automatic inventory policy from the service process."""
+
+    def __init__(
+        self,
+        store: Store,
+        manager: ScanManager,
+        lock: Any,
+        *,
+        runner: Any = None,
+        clock: Any = None,
+        check_interval_seconds: float = 5.0,
+        logger: Any = None,
+    ) -> None:
+        self._store = store
+        self._manager = manager
+        self._lock = lock
+        self._runner = runner or self._run_inventory
+        self._clock = clock or time.monotonic
+        self._check_interval = max(0.05, float(check_interval_seconds))
+        self._logger = logger or (lambda message: None)
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._last_monotonic: float | None = None
+        self._signature: tuple[bool, int] | None = None
+        self.last_run_at = ""
+        self.last_error = ""
+
+    def _run_inventory(self) -> dict[str, Any]:
+        return run_inventory_scan(
+            self._store,
+            self._manager,
+            self._lock,
+            kind="auto",
+        )
+
+    def start(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._last_monotonic = self._clock()
+        self._signature = None
+        self._thread = threading.Thread(
+            target=self._loop,
+            name="auto-scan-scheduler",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+            self._thread = None
+
+    def _loop(self) -> None:
+        while not self._stop.wait(self._check_interval):
+            self.poll_once()
+
+    def poll_once(self, now: float | None = None) -> bool:
+        current = self._clock() if now is None else float(now)
+        settings = self._store.get_settings()
+        enabled = bool(settings.get("auto_scan_enabled"))
+        interval = max(1, int(settings.get("auto_scan_interval_minutes") or 30)) * 60
+        signature = (enabled, interval)
+        if signature != self._signature:
+            # Enabling the policy or changing its interval starts a fresh wait
+            # instead of firing immediately because the process has run longer
+            # than the new interval.
+            self._signature = signature
+            self._last_monotonic = current
+            return False
+        if not enabled:
+            return False
+        if self._last_monotonic is None:
+            self._last_monotonic = current
+            return False
+        if current - self._last_monotonic < interval:
+            return False
+        if self._manager.status().get("running"):
+            return False
+        try:
+            self._runner()
+        except V2Error as exc:
+            if exc.status == 409:
+                return False
+            self.last_error = str(exc)
+            self._last_monotonic = self._clock()
+            self._logger(f"automatic scan failed: {exc}")
+            return False
+        except Exception as exc:
+            self.last_error = str(exc)
+            self._last_monotonic = self._clock()
+            self._logger(f"automatic scan failed: {exc}")
+            return False
+        self.last_error = ""
+        self.last_run_at = _now()
+        self._last_monotonic = self._clock()
+        self._logger("automatic scan completed")
+        return True
+
+    def status(self) -> dict[str, Any]:
+        settings = self._store.get_settings()
+        enabled = bool(settings.get("auto_scan_enabled"))
+        interval = max(1, int(settings.get("auto_scan_interval_minutes") or 30)) * 60
+        remaining = 0
+        if enabled and self._last_monotonic is not None:
+            remaining = max(0, int(interval - (self._clock() - self._last_monotonic)))
+        return {
+            "managed": True,
+            "thread_alive": bool(self._thread is not None and self._thread.is_alive()),
+            "enabled": enabled,
+            "interval_minutes": interval // 60,
+            "seconds_until_next": remaining,
+            "last_run_at": self.last_run_at,
+            "last_error": self.last_error,
+        }
 
 
 def _networks_route(handler: Any, method: str) -> None:
@@ -322,6 +486,10 @@ def _scan_start_route(handler: Any) -> None:
     if custom_only and not custom_ranges:
         raise V2Error(400, "自定义范围不能为空")
     manager = _manager(handler)
+    store = _store(handler)
+    default_interface = ""
+    if network_ids is None and not custom_only:
+        default_interface = str(store.get_settings().get("default_interface") or "").strip()
     lock = getattr(handler.server, "device_scan_lock", None)
     if lock is None:
         raise V2Error(503, "扫描锁不可用")
@@ -336,6 +504,7 @@ def _scan_start_route(handler: Any) -> None:
             custom_ranges,
             custom_only,
             scan_all=scan_all,
+            default_interface=default_interface,
         )
         actual = manager.status()
         handler._send_json(
@@ -638,28 +807,83 @@ def _scans_route(handler: Any, method: str, parts: list[str]) -> None:
     raise V2Error(404, "not found")
 
 
-def _settings_route(handler: Any, method: str) -> None:
+def _automation_status(handler: Any) -> dict[str, Any]:
+    scheduler = getattr(handler.server, "auto_scan_scheduler", None)
+    if scheduler is None:
+        return {
+            "managed": False,
+            "enabled": False,
+            "interval_minutes": 0,
+            "seconds_until_next": 0,
+            "last_run_at": "",
+            "last_error": "",
+        }
+    return scheduler.status()
+
+
+def _settings_payload(handler: Any, store: Store) -> dict[str, Any]:
+    return {
+        "settings": store.get_settings(),
+        "storage": store.storage_info(),
+        "automation": _automation_status(handler),
+        "vendor_count": vendor_count(),
+        "schema_version": SCHEMA_VERSION,
+        "capabilities": [
+            "store/sqlite",
+            "devices",
+            "scan-history",
+            "mac-lookup",
+            "network-analysis",
+            "custom-ranges",
+            "pause-resume",
+            "network-scan",
+            "storage-migration",
+            "auto-scan-service",
+        ],
+    }
+
+
+def _settings_route(handler: Any, method: str, parts: list[str]) -> None:
     store = _store(handler)
+    if len(parts) == 3 and parts[2] == "storage":
+        if method != "POST":
+            raise V2Error(405, "method not allowed")
+        body = handler._read_json_body()
+        manager = _manager(handler)
+        if manager.status().get("running"):
+            raise V2Error(409, "另一个扫描任务正在进行中")
+        lock = getattr(handler.server, "device_scan_lock", None)
+        acquired = False
+        try:
+            if lock is not None:
+                acquired = lock.acquire(blocking=False)
+                if not acquired:
+                    raise V2Error(409, "另一个扫描任务正在进行中")
+                if manager.status().get("running"):
+                    raise V2Error(409, "另一个扫描任务正在进行中")
+            try:
+                storage = store.relocate_storage(body.get("directory"))
+            except ValueError as exc:
+                raise V2Error(400, str(exc)) from exc
+            handler._send_json(
+                200,
+                {
+                    "ok": True,
+                    "storage": storage,
+                    "settings": store.get_settings(),
+                    "automation": _automation_status(handler),
+                },
+            )
+        finally:
+            if acquired:
+                lock.release()
+        return
+    if len(parts) != 2:
+        raise V2Error(404, "not found")
     if method in {"GET", "HEAD"}:
         handler._send_json(
             200,
-            {
-                "ok": True,
-                "settings": store.get_settings(),
-                "storage": store.storage_info(),
-                "vendor_count": vendor_count(),
-                "schema_version": SCHEMA_VERSION,
-                "capabilities": [
-                    "store/sqlite",
-                    "devices",
-                    "scan-history",
-                    "mac-lookup",
-                    "network-analysis",
-                    "custom-ranges",
-                    "pause-resume",
-                    "network-scan",
-                ],
-            },
+            {"ok": True, **_settings_payload(handler, store)},
             head_only=method == "HEAD",
         )
         return
@@ -669,7 +893,15 @@ def _settings_route(handler: Any, method: str) -> None:
             settings = store.update_settings(body)
         except ValueError as exc:
             raise V2Error(400, str(exc)) from exc
-        handler._send_json(200, {"ok": True, "settings": settings})
+        handler._send_json(
+            200,
+            {
+                "ok": True,
+                "settings": settings,
+                "storage": store.storage_info(),
+                "automation": _automation_status(handler),
+            },
+        )
         return
     raise V2Error(405, "method not allowed")
 
@@ -718,8 +950,8 @@ def handle_v2(handler: Any, method: str, parts: list[str]) -> bool:
         if parts[:2] == ["v2", "scans"]:
             _scans_route(handler, method, parts)
             return True
-        if parts == ["v2", "settings"]:
-            _settings_route(handler, method)
+        if parts[:2] == ["v2", "settings"]:
+            _settings_route(handler, method, parts)
             return True
         raise V2Error(404, "not found")
     except V2Error as exc:

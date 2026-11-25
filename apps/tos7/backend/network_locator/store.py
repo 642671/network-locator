@@ -30,6 +30,7 @@ from .oui import is_virtual_vendor, mac_kind, normalize_mac, parse_query, vendor
 
 SCHEMA_VERSION = 2
 APP_ID = "network-locator"
+LOCATION_FILE = "storage-location.json"
 
 ONLINE_STATES = {"LOCAL", "REACHABLE"}
 NEIGHBOR_STATES = {"DELAY", "STALE", "PROBE"}
@@ -71,6 +72,29 @@ def _parse_time(value: object) -> datetime | None:
         return None
 
 
+def _settings_bool(key: str, value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"1", "true", "yes", "on"}:
+            return True
+        if text in {"0", "false", "no", "off"}:
+            return False
+    raise ValueError(f"{key} must be true or false")
+
+
+def _settings_interface(value: object) -> str:
+    text = str(value or "").strip()
+    if len(text) > 64:
+        raise ValueError("default_interface must be 64 characters or fewer")
+    if any(character.isspace() or ord(character) < 32 for character in text):
+        raise ValueError("default_interface must not contain whitespace or control characters")
+    return text
+
+
 def default_data_dir() -> Path:
     configured = str(os.environ.get("APP_DATA") or "").strip()
     if configured:
@@ -78,6 +102,10 @@ def default_data_dir() -> Path:
     # backend/network_locator/store.py -> backend/data in a source checkout,
     # /usr/local/network-locator/data in the installed package.
     return Path(__file__).resolve().parents[2] / "data"
+
+
+def _within(base: Path, candidate: Path) -> bool:
+    return candidate == base or base in candidate.parents
 
 
 def _compact(value: object) -> str:
@@ -153,14 +181,47 @@ class Store:
     """Thread-safe SQLite store used by the HTTP handlers and scan worker."""
 
     def __init__(self, path: str | os.PathLike[str] | None = None) -> None:
+        self._base_dir = (
+            Path(path).expanduser().resolve().parent
+            if path is not None
+            else default_data_dir().resolve()
+        )
         if path is None:
-            data_dir = default_data_dir()
+            data_dir = self._located_directory() or self._base_dir
             self.path = data_dir / f"{APP_ID}.db"
         else:
-            self.path = Path(path)
+            self.path = Path(path).expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._initialize()
+
+    @property
+    def base_dir(self) -> Path:
+        """Stable application data root that holds the location pointer."""
+
+        return self._base_dir
+
+    def _located_directory(self) -> Path | None:
+        pointer = self._base_dir / LOCATION_FILE
+        try:
+            parsed = json.loads(pointer.read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError):
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        text = str(parsed.get("directory") or "").strip()
+        if not text:
+            return None
+        candidate = Path(text).expanduser()
+        if not candidate.is_absolute():
+            return None
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            return None
+        # The packaged unit grants write access only to APP_DATA. Never follow
+        # a pointer outside that tree, even if the file was edited by hand.
+        return resolved if _within(self._base_dir, resolved) else None
 
     # ---------------------------------------------------------------- schema
     def _connect(self) -> sqlite3.Connection:
@@ -364,6 +425,8 @@ class Store:
             if key not in DEFAULT_SETTINGS:
                 continue
             if key in _SETTINGS_LIMITS:
+                if isinstance(value, bool):
+                    raise ValueError(f"{key} must be a number")
                 try:
                     number = int(value)
                 except (TypeError, ValueError) as exc:
@@ -373,7 +436,7 @@ class Store:
                     raise ValueError(f"{key} must be between {low} and {high}")
                 current[key] = number
             elif key in {"auto_scan_enabled", "csv_include_header", "csv_bom"}:
-                current[key] = bool(value)
+                current[key] = _settings_bool(key, value)
             elif key == "csv_delimiter":
                 text = str(value or "")
                 if text not in {",", ";", "\t"}:
@@ -390,7 +453,7 @@ class Store:
                     raise ValueError("locale must be zh or en")
                 current[key] = text
             elif key == "default_interface":
-                current[key] = str(value or "")[:64]
+                current[key] = _settings_interface(value)
         with self._lock, self._connect() as connection:
             connection.execute(
                 "INSERT INTO meta(key, value) VALUES('settings', ?) "
@@ -406,17 +469,105 @@ class Store:
         os.environ["SCAN_CONCURRENCY"] = str(settings["scan_concurrency"])
 
     def storage_info(self) -> dict[str, Any]:
+        with self._lock:
+            path = self.path
+            directory = path.parent.resolve()
+            try:
+                size = path.stat().st_size
+            except OSError:
+                size = 0
+            return {
+                "path": str(path),
+                "directory": str(directory),
+                "base_directory": str(self._base_dir),
+                "is_default": directory == self._base_dir,
+                "relocatable": True,
+                "size_bytes": size,
+                "writable": os.access(str(directory), os.W_OK),
+                "schema_version": SCHEMA_VERSION,
+            }
+
+    def relocate_storage(self, directory: object) -> dict[str, Any]:
+        """Copy the live database into another directory under APP_DATA.
+
+        The old database is left in place as a rollback copy. A small pointer
+        file in the stable APP_DATA root makes the new location survive a
+        service restart without changing the packaged paths or systemd unit.
+        """
+
+        text = str(directory or "").strip()
+        if not text:
+            raise ValueError("存储目录不能为空")
+        requested = Path(text).expanduser()
+        if not requested.is_absolute():
+            raise ValueError("存储目录必须是绝对路径")
         try:
-            size = self.path.stat().st_size
-        except OSError:
-            size = 0
-        return {
-            "path": str(self.path),
-            "directory": str(self.path.parent),
-            "size_bytes": size,
-            "writable": os.access(str(self.path.parent), os.W_OK),
-            "schema_version": SCHEMA_VERSION,
-        }
+            target_dir = requested.resolve()
+        except OSError as exc:
+            raise ValueError(f"存储目录不可用：{exc}") from exc
+        if not _within(self._base_dir, target_dir):
+            raise ValueError(f"存储目录必须位于应用数据目录 {self._base_dir} 内")
+        target = target_dir / f"{APP_ID}.db"
+        with self._lock:
+            current = self.path.resolve()
+            if target == current:
+                return {**self.storage_info(), "migrated": False}
+            if target.exists():
+                raise ValueError("目标目录已存在数据库文件，请选择空目录或先备份")
+            try:
+                target_dir.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                raise ValueError(f"无法创建存储目录：{exc}") from exc
+            if not os.access(str(target_dir), os.W_OK):
+                raise ValueError("目标目录不可写")
+            try:
+                source = sqlite3.connect(str(self.path), timeout=10.0)
+                destination = sqlite3.connect(str(target), timeout=10.0)
+                try:
+                    source.backup(destination)
+                finally:
+                    destination.close()
+                    source.close()
+            except (OSError, sqlite3.Error) as exc:
+                try:
+                    target.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise ValueError(f"数据库迁移失败：{exc}") from exc
+            pointer = self._base_dir / LOCATION_FILE
+            try:
+                if target_dir == self._base_dir:
+                    pointer.unlink(missing_ok=True)
+                else:
+                    temporary = pointer.with_name(pointer.name + ".tmp")
+                    temporary.write_text(
+                        json.dumps({"directory": str(target_dir)}, ensure_ascii=False)
+                        + "\n",
+                        encoding="utf-8",
+                    )
+                    os.replace(temporary, pointer)
+            except OSError as exc:
+                try:
+                    target.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise ValueError(f"无法保存存储位置：{exc}") from exc
+            previous = self.path
+            self.path = target
+            try:
+                self._initialize()
+            except Exception:
+                self.path = previous
+                try:
+                    target.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise
+            return {
+                **self.storage_info(),
+                "migrated": True,
+                "previous_path": str(previous),
+            }
 
     # --------------------------------------------------------------- devices
     def _find_device_by_mac(self, connection: sqlite3.Connection, mac: str) -> sqlite3.Row | None:

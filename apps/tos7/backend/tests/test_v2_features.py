@@ -8,6 +8,7 @@ import threading
 import tempfile
 import time
 import unittest
+import os
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -444,6 +445,162 @@ class StoreIdentityTests(unittest.TestCase):
         self.assertEqual(historical["count"], 1)
         self.assertEqual(historical["matches"][0]["device_id"], first["device_id"])
         self.assertIn("3C-07-54-9A-1B-2C", historical["matches"][0]["matched_macs"])
+
+
+class SettingsAndAutomationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name) / "data"
+        self.store = Store(self.root / "network-locator.db")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_storage_relocation_copies_data_and_survives_restart(self) -> None:
+        self.store.ingest_observations([observation("AA-BB-CC-11-22-33", "192.0.2.10")])
+        self.store.update_settings({"scan_timeout_ms": 2500, "csv_delimiter": ";"})
+        original = self.store.path
+        target = self.root / "moved"
+        info = self.store.relocate_storage(str(target))
+        self.assertTrue(info["migrated"])
+        self.assertEqual(Path(info["path"]), target / "network-locator.db")
+        self.assertEqual(info["directory"], str(target.resolve()))
+        self.assertTrue(original.exists())
+        self.assertTrue((self.root / "storage-location.json").exists())
+        with mock.patch.dict(os.environ, {"APP_DATA": str(self.root)}):
+            reopened = Store()
+        self.assertEqual(reopened.path, target / "network-locator.db")
+        self.assertEqual(reopened.get_settings()["scan_timeout_ms"], 2500)
+        self.assertEqual(reopened.get_settings()["csv_delimiter"], ";")
+        self.assertEqual(len(reopened.list_devices()["devices"]), 1)
+        same = self.store.relocate_storage(str(target))
+        self.assertFalse(same["migrated"])
+
+    def test_storage_relocation_rejects_outside_and_existing_target(self) -> None:
+        outside = Path(self.tmp.name) / "outside"
+        with self.assertRaises(ValueError):
+            self.store.relocate_storage(str(outside))
+        with self.assertRaises(ValueError):
+            self.store.relocate_storage("relative/path")
+        target = self.root / "occupied"
+        target.mkdir(parents=True)
+        (target / "network-locator.db").write_text("not a database", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            self.store.relocate_storage(str(target))
+        self.assertEqual(self.store.path, self.root / "network-locator.db")
+
+    def test_settings_validation_and_scan_environment(self) -> None:
+        settings = self.store.update_settings(
+            {
+                "scan_timeout_ms": 2400,
+                "scan_concurrency": 17,
+                "default_interface": "eth1",
+                "auto_scan_enabled": "yes",
+                "csv_bom": "off",
+                "theme": "dark",
+                "locale": "en",
+            }
+        )
+        self.assertEqual(settings["scan_timeout_ms"], 2400)
+        self.assertEqual(settings["scan_concurrency"], 17)
+        self.assertTrue(settings["auto_scan_enabled"])
+        self.assertFalse(settings["csv_bom"])
+        self.assertEqual(os.environ["SCAN_PING_TIMEOUT_MS"], "2400")
+        self.assertEqual(os.environ["SCAN_CONCURRENCY"], "17")
+        for patch in (
+            {"scan_timeout_ms": True},
+            {"scan_timeout_ms": 99},
+            {"scan_concurrency": 0},
+            {"auto_scan_enabled": "maybe"},
+            {"default_interface": "eth 0"},
+            {"theme": "sepia"},
+            {"locale": "fr"},
+        ):
+            with self.assertRaises(ValueError, msg=repr(patch)):
+                self.store.update_settings(patch)
+
+    def test_default_interface_selection(self) -> None:
+        first = target("eth0", local_ip="10.0.0.5")
+        second = target("eth1", local_ip="10.1.0.5", gateway="10.1.0.1")
+        ids, warnings = v2_api._default_interface_ids([first, second], None, "eth1")
+        self.assertEqual(ids, ["eth1|10.0.0.0/24"])
+        self.assertEqual(warnings, [])
+        ids, warnings = v2_api._default_interface_ids([first, second], None, "eth9")
+        self.assertIsNone(ids)
+        self.assertTrue(warnings)
+        ids, warnings = v2_api._default_interface_ids([first, second], ["kept"], "eth1")
+        self.assertEqual(ids, ["kept"])
+        self.assertEqual(warnings, [])
+
+    def test_auto_scan_scheduler_runs_from_service_policy(self) -> None:
+        class Clock:
+            value = 0.0
+
+            def __call__(self) -> float:
+                return self.value
+
+        clock = Clock()
+        runs: list[int] = []
+        manager = SimpleNamespace(status=lambda: {"running": False})
+        scheduler = v2_api.AutoScanScheduler(
+            self.store,
+            manager,
+            threading.Lock(),
+            runner=lambda: runs.append(1) or {"ok": True},
+            clock=clock,
+            check_interval_seconds=0.01,
+        )
+        self.store.update_settings({"auto_scan_enabled": True, "auto_scan_interval_minutes": 30})
+        self.assertFalse(scheduler.poll_once(0))
+        clock.value = 1799
+        self.assertFalse(scheduler.poll_once(1799))
+        clock.value = 1800
+        self.assertTrue(scheduler.poll_once(1800))
+        self.assertEqual(len(runs), 1)
+        self.assertTrue(scheduler.status()["last_run_at"])
+        self.store.update_settings({"auto_scan_enabled": False})
+        clock.value = 5400
+        self.assertFalse(scheduler.poll_once(5400))
+        self.store.update_settings({"auto_scan_enabled": True})
+        self.assertFalse(scheduler.poll_once(5400))
+        clock.value = 7200
+        self.assertTrue(scheduler.poll_once(7200))
+        self.assertEqual(len(runs), 2)
+
+    def test_auto_scan_scheduler_skips_running_and_records_errors(self) -> None:
+        class Clock:
+            value = 0.0
+
+            def __call__(self) -> float:
+                return self.value
+
+        clock = Clock()
+        running = {"value": True}
+        manager = SimpleNamespace(status=lambda: {"running": running["value"]})
+        attempts: list[int] = []
+
+        def runner() -> dict:
+            attempts.append(1)
+            raise v2_api.V2Error(500, "probe failed")
+
+        scheduler = v2_api.AutoScanScheduler(
+            self.store,
+            manager,
+            threading.Lock(),
+            runner=runner,
+            clock=clock,
+            check_interval_seconds=0.01,
+        )
+        self.store.update_settings({"auto_scan_enabled": True, "auto_scan_interval_minutes": 30})
+        self.assertFalse(scheduler.poll_once(0))
+        clock.value = 1800
+        self.assertFalse(scheduler.poll_once(1800))
+        self.assertEqual(attempts, [])
+        running["value"] = False
+        clock.value = 3600
+        self.assertFalse(scheduler.poll_once(3600))
+        self.assertEqual(attempts, [1])
+        self.assertIn("probe failed", scheduler.status()["last_error"])
 
 
 class ScanHistoryApiTests(unittest.TestCase):

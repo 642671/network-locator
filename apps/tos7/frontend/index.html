@@ -581,6 +581,8 @@
                 <label class="v2-check"><input id="v2SetAutoScan" type="checkbox"> 启用自动扫描</label>
                 <label>自动扫描间隔（分钟）<input id="v2SetAutoInterval" class="v2-input" type="number" min="1" max="1440"></label>
               </div>
+              <div id="v2SetAutomation" class="v2-note" hidden></div>
+              <p id="v2SetAutomationDetail" class="v2-hint"></p>
               <p class="v2-card-copy">参数在保存后立即用于新的扫描任务。</p>
             </section>
             <section class="v2-card">
@@ -617,9 +619,15 @@
                 <div><dt>结构版本</dt><dd id="v2SetSchema">--</dd></div>
                 <div><dt>历史保留</dt><dd id="v2SetRetention">--</dd></div>
               </dl>
+              <div class="v2-field">
+                <label for="v2SetStorageDir">存储目录</label>
+                <input id="v2SetStorageDir" class="v2-input" type="text" spellcheck="false" autocomplete="off">
+              </div>
               <div class="v2-inline-actions">
+                <button id="v2SetStorageMigrate" class="v2-button" type="button">迁移数据</button>
                 <button id="v2SetPurge" class="v2-button" type="button">清理历史</button>
               </div>
+              <p id="v2SetStorageHint" class="v2-hint">存储目录必须位于应用数据根目录内；迁移会复制设备档案与扫描历史，旧数据库保留作为回滚备份。</p>
               <p class="v2-card-copy">设备档案与扫描历史保存在 NAS 本地数据目录，卸载应用前请先导出需要保留的数据。</p>
             </section>
             <section class="v2-card">

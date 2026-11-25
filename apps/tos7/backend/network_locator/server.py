@@ -488,6 +488,11 @@ def serve(socket_path: str = SOCKET_PATH) -> int:
     except Exception as exc:
         log("ERROR", f"persistent store unavailable, using temporary storage: {exc}")
         store = Store(os.path.join(tempfile.gettempdir(), f"{APP_ID}.db"))
+    try:
+        # Apply persisted timeout/concurrency before the first scan can start.
+        store.get_settings()
+    except Exception as exc:
+        log("WARNING", f"failed to apply persisted settings: {exc}")
 
     def record_scan(snapshot: dict) -> None:
         try:
@@ -504,6 +509,15 @@ def serve(socket_path: str = SOCKET_PATH) -> int:
     server.scan_manager = manager
     server.store = store
     server.device_scan_lock = threading.Lock()
+    from .v2_api import AutoScanScheduler
+
+    scheduler = AutoScanScheduler(
+        store,
+        manager,
+        server.device_scan_lock,
+        logger=lambda message: log("INFO", message),
+    )
+    server.auto_scan_scheduler = scheduler
     os.chmod(socket_path, 0o660)
     stop_once = threading.Event()
 
@@ -522,9 +536,11 @@ def serve(socket_path: str = SOCKET_PATH) -> int:
         "INFO",
         f"version={__version__} socket={socket_path} python={sys.version.split()[0]}",
     )
+    scheduler.start()
     try:
         server.serve_forever(poll_interval=0.4)
     finally:
+        scheduler.stop()
         manager.stop()
         manager.wait(2.0)
         server.server_close()

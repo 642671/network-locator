@@ -248,7 +248,7 @@
     }
   }
 
-  function applyThemeChoice(choice) {
+  function applyThemeChoice(choice, options) {
     var theme = choice === "dark" ? "dark" : choice === "light" ? "light" : systemTheme();
     if (window.NetworkLocatorApp && typeof window.NetworkLocatorApp.applyTheme === "function") {
       window.NetworkLocatorApp.applyTheme(theme);
@@ -259,6 +259,14 @@
       window.localStorage.setItem(THEME_KEY, choice);
     } catch (error) {
       /* storage may be blocked */
+    }
+    if (!options || options.persist !== false) {
+      var app = window.NetworkLocatorApp;
+      if (app && typeof app.apiRequest === "function") {
+        app.apiRequest("v2/settings", { theme: choice }, { method: "PATCH" }).catch(function () {
+          /* settings stay in localStorage if the service is unavailable */
+        });
+      }
     }
     updateThemeControls();
   }
@@ -335,6 +343,24 @@
       });
     }
     return attempt(0);
+  }
+
+  function syncThemeFromServer() {
+    if (storedTheme()) {
+      return;
+    }
+    var app = window.NetworkLocatorApp;
+    if (!app || typeof app.apiRequest !== "function") {
+      return;
+    }
+    app.apiRequest("v2/settings", null).then(function (payload) {
+      var choice = payload && payload.settings ? payload.settings.theme : "";
+      if (!storedTheme() && (choice === "light" || choice === "dark" || choice === "system")) {
+        applyThemeChoice(choice, { persist: false });
+      }
+    }).catch(function () {
+      /* keep the system theme when settings cannot be read */
+    });
   }
 
   function setBackendBadge(kind, text) {
@@ -498,6 +524,7 @@
     updateThemeControls();
     updateSettingsState();
     setRoute(routeFromHash(), false);
+    syncThemeFromServer();
     fetchHealth().then(updateVersionChrome).catch(function () {
       setBackendBadge("offline", "服务不可用");
       updateSettingsState();

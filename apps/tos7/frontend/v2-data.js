@@ -13,6 +13,10 @@
     return String(value);
   }
 
+  function locale() {
+    return root.NetworkLocatorI18n ? root.NetworkLocatorI18n.locale() : "zh";
+  }
+
   function translateMessage(value) {
     if (root.NetworkLocatorI18n && typeof root.NetworkLocatorI18n.translateMessage === "function") {
       return root.NetworkLocatorI18n.translateMessage(String(value || ""));
@@ -554,6 +558,9 @@
     settings: function () { return request("v2/settings"); },
     updateSettings: function (patch) {
       return request("v2/settings", patch, { method: "PATCH" });
+    },
+    relocateStorage: function (directory) {
+      return request("v2/settings/storage", { directory: directory }, { method: "POST" });
     }
   };
 
@@ -562,6 +569,7 @@
     request: request,
     toast: toast,
     tr: tr,
+    locale: locale,
     translateMessage: translateMessage,
     el: el,
     clear: clear,

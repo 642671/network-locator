@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
@@ -38,6 +40,7 @@ from network_locator.core import (  # noqa: E402
     probe_network_devices,
     select_network_targets,
 )
+from network_locator import core as core_module  # noqa: E402
 
 
 class MacNormalizationTests(unittest.TestCase):
@@ -553,6 +556,64 @@ class ScanManagerTests(unittest.TestCase):
         self.assertEqual(sweep_calls, ["192.0.2.0/24", "198.51.100.0/24"])
         self.assertEqual(status["total_hosts"], 508)
         self.assertEqual(len(status["selected_network_ids"]), 2)
+
+    def test_scan_manager_applies_default_interface(self) -> None:
+        targets = [
+            self._target("enp1s0", "192.0.2.25"),
+            self._target("enp2s0", "198.51.100.40"),
+        ]
+        sweep_calls = []
+
+        def sweep(target, cancel_event, progress):
+            sweep_calls.append(target.interface)
+            progress(target.host_count)
+            return True
+
+        manager = ScanManager(
+            discover=lambda: (targets, []),
+            neighbors=lambda interface: [],
+            sweep=sweep,
+        )
+        self.assertTrue(manager.start("456A", default_interface="enp2s0"))
+        manager.wait(2)
+        status = manager.status()
+        self.assertEqual(status["status"], "completed")
+        self.assertEqual(sweep_calls, ["enp2s0"])
+        self.assertEqual(status["default_interface"], "enp2s0")
+        self.assertEqual(status["selected_network_ids"], ["enp2s0|198.51.100.0/24"])
+
+    def test_scan_hosts_uses_persisted_timeout_and_concurrency(self) -> None:
+        executor_sizes = []
+        timeouts = []
+        real_executor = core_module.concurrent.futures.ThreadPoolExecutor
+
+        class RecordingExecutor(real_executor):
+            def __init__(self, *args, **kwargs):
+                executor_sizes.append(kwargs.get("max_workers", args[0] if args else None))
+                super().__init__(*args, **kwargs)
+
+        def fake_ping(path, interface, address, timeout_ms):
+            timeouts.append(timeout_ms)
+
+        with mock.patch.dict(
+            os.environ,
+            {"SCAN_PING_TIMEOUT_MS": "2400", "SCAN_CONCURRENCY": "17"},
+            clear=False,
+        ):
+            with mock.patch.object(
+                core_module.concurrent.futures,
+                "ThreadPoolExecutor",
+                RecordingExecutor,
+            ), mock.patch.object(core_module, "_ping_host", fake_ping):
+                core_module.scan_hosts(
+                    self._target(),
+                    threading.Event(),
+                    ping_command="/bin/ping",
+                    primer=lambda *args: None,
+                )
+        self.assertEqual(executor_sizes[0], 17)
+        self.assertEqual(set(timeouts), {2400})
+        self.assertEqual(len(timeouts), 254)
 
     def test_scan_manager_sweeps_shared_network_once(self) -> None:
         targets = [

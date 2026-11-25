@@ -82,8 +82,7 @@
       token: 0,
       currentId: ""
     },
-    autoScanRunning: false,
-    autoScanTimer: null
+    automationBusy: false
   };
 
   function currentRoute() {
@@ -3041,6 +3040,40 @@
     }
   }
 
+  function renderAutomation(payload) {
+    var automation = (payload && payload.automation) || {};
+    var note = doc("v2SetAutomation");
+    var detail = doc("v2SetAutomationDetail");
+    if (!note || !detail) {
+      return;
+    }
+    if (!automation.managed) {
+      note.hidden = true;
+      detail.textContent = "";
+      return;
+    }
+    note.hidden = false;
+    note.textContent = automation.enabled
+      ? D.tr("自动扫描由服务进程托管，关闭页面后仍会执行。")
+      : D.tr("自动扫描由服务进程托管，当前已关闭。");
+    var parts = [];
+    if (automation.enabled) {
+      if (automation.seconds_until_next) {
+        parts.push(D.tr("下次自动扫描：") + D.formatDuration(new Date(), new Date(Date.now() + Number(automation.seconds_until_next) * 1000)));
+      } else {
+        parts.push(D.tr("下次自动扫描：等待首次运行"));
+      }
+    }
+    if (automation.last_run_at) {
+      parts.push(D.tr("上次自动扫描：") + D.formatTime(automation.last_run_at, true));
+    }
+    if (automation.last_error) {
+      parts.push(D.tr("最近错误：") + automation.last_error);
+    }
+    detail.textContent = parts.join(" · ");
+    detail.classList.toggle("is-error", !!automation.last_error);
+  }
+
   function renderSettings(payload) {
     var settings = payload.settings || {};
     var storage = payload.storage || {};
@@ -3072,12 +3105,23 @@
     D.setText("v2SetStorageSize", D.formatBytes(storage.size_bytes || 0));
     D.setText("v2SetSchema", "v" + (payload.schema_version || "--"));
     D.setText("v2SetRetention", (settings.history_retention_days || 0) + D.tr(" 天"));
+    var storageDir = doc("v2SetStorageDir");
+    if (storageDir) {
+      storageDir.value = storage.directory || "";
+    }
+    D.setText(
+      "v2SetStorageHint",
+      D.tr("存储根目录：") + (storage.base_directory || "--") + D.tr("。") +
+        (D.locale() === "en" ? " " : "") +
+        D.tr("迁移会复制设备档案与扫描历史，旧数据库保留作为回滚备份。")
+    );
     D.setText("v2AboutVendors", payload.vendor_count || 0);
     D.setText(
       "v2SettingsSummary",
       D.tr("设置已保存 · 超时 ") + (settings.scan_timeout_ms || 0) + " ms" +
         " · " + D.tr("并发 ") + (settings.scan_concurrency || 0)
     );
+    renderAutomation(payload);
   }
 
   async function loadSettings() {
@@ -3085,7 +3129,6 @@
       var payload = await D.API.settings();
       state.settings = payload;
       renderSettings(payload);
-      applyAutoScan(payload.settings || {});
       try {
         var analysis = await D.API.analysis();
         populateSettingsInterfaces(analysis.interfaces || [], (payload.settings || {}).default_interface);
@@ -3118,21 +3161,22 @@
       csv_delimiter: settingValue("v2SetDelimiter") || ",",
       csv_include_header: settingChecked("v2SetCsvHeader"),
       csv_bom: settingChecked("v2SetCsvBom"),
-      theme: currentThemeChoice()
+      theme: currentThemeChoice(),
+      locale: window.NetworkLocatorI18n ? window.NetworkLocatorI18n.locale() : "zh"
     };
   }
 
   function validateSettings(patch) {
     var numeric = [
-      ["scan_timeout_ms", 100, 30000],
-      ["scan_concurrency", 1, 128],
-      ["stale_after_minutes", 1, 10080],
-      ["auto_scan_interval_minutes", 1, 1440]
+      ["scan_timeout_ms", "探测超时（毫秒）", 100, 30000],
+      ["scan_concurrency", "并发数", 1, 128],
+      ["stale_after_minutes", "在线判定有效期（分钟）", 1, 10080],
+      ["auto_scan_interval_minutes", "自动扫描间隔（分钟）", 1, 1440]
     ];
     for (var index = 0; index < numeric.length; index += 1) {
       var item = numeric[index];
-      if (!isFinite(patch[item[0]]) || patch[item[0]] < item[1] || patch[item[0]] > item[2]) {
-        return D.tr(item[0]) + D.tr(" 必须在 ") + item[1] + "–" + item[2] + D.tr(" 之间");
+      if (!isFinite(patch[item[0]]) || patch[item[0]] < item[2] || patch[item[0]] > item[3]) {
+        return D.tr(item[1]) + D.tr(" 必须在 ") + item[2] + "–" + item[3] + D.tr(" 之间");
       }
     }
     return "";
@@ -3151,13 +3195,16 @@
       var payload = await D.API.updateSettings(patch);
       state.settings = state.settings || {};
       state.settings.settings = payload.settings || payload;
-      renderSettings({
-        settings: payload.settings || payload,
-        storage: (state.settings && state.settings.storage) || {},
-        schema_version: (state.settings && state.settings.schema_version) || "",
-        vendor_count: (state.settings && state.settings.vendor_count) || 0
-      });
-      applyAutoScan(payload.settings || payload);
+      if (payload.storage) {
+        state.settings.storage = payload.storage;
+      }
+      if (payload.automation) {
+        state.settings.automation = payload.automation;
+      }
+      if (state.inventory) {
+        state.inventory.settings = payload.settings || payload;
+      }
+      renderSettings(state.settings);
       D.toast(D.tr("设置已保存"), false);
     } catch (error) {
       D.toast(error.message || D.tr("设置保存失败"), true);
@@ -3166,38 +3213,38 @@
     }
   }
 
-  function applyAutoScan(settings) {
-    if (state.autoScanTimer) {
-      window.clearInterval(state.autoScanTimer);
-      state.autoScanTimer = null;
-    }
-    if (!settings || !settings.auto_scan_enabled) {
+  async function migrateStorage() {
+    if (state.automationBusy) {
       return;
     }
-    var minutes = Math.max(1, Number(settings.auto_scan_interval_minutes) || 30);
-    state.autoScanTimer = window.setInterval(runAutoScan, minutes * 60 * 1000);
-  }
-
-  async function runAutoScan() {
-    if (state.autoScanRunning) {
+    var input = doc("v2SetStorageDir");
+    var directory = input ? String(input.value || "").trim() : "";
+    if (!directory) {
+      D.toast(D.tr("请输入存储目录"), true);
       return;
     }
-    state.autoScanRunning = true;
+    if (!window.confirm(D.tr("迁移会将设备档案与扫描历史复制到新目录，旧数据库保留作为回滚备份；迁移期间不能扫描。继续？"))) {
+      return;
+    }
+    var button = doc("v2SetStorageMigrate");
+    state.automationBusy = true;
+    setBusy(button, true, D.tr("迁移中…"));
     try {
-      var payload = await D.API.inventoryScan({});
-      var task = payload.task || {};
+      var payload = await D.API.relocateStorage(directory);
+      state.settings = state.settings || {};
+      state.settings.storage = payload.storage || state.settings.storage;
+      state.settings.settings = payload.settings || state.settings.settings;
+      state.settings.automation = payload.automation || state.settings.automation;
+      renderSettings(state.settings);
       D.toast(
-        D.tr("自动扫描完成：发现 ") + (task.discovered || 0) +
-          D.tr(" 台，新增 ") + (task.new_devices || 0) + D.tr(" 台"),
+        D.tr("迁移完成：新数据库位于 ") + ((payload.storage && payload.storage.path) || directory),
         false
       );
-      if (state.route === "dashboard" || state.route === "inventory") {
-        refreshCurrent();
-      }
     } catch (error) {
-      D.toast(D.tr("自动扫描失败：") + (error.message || D.tr("未知错误")), true);
+      D.toast(error.message || D.tr("存储迁移失败"), true);
     } finally {
-      state.autoScanRunning = false;
+      state.automationBusy = false;
+      setBusy(button, false);
     }
   }
 
@@ -3226,6 +3273,10 @@
     var purge = doc("v2SetPurge");
     if (purge) {
       purge.addEventListener("click", purgeFromSettings);
+    }
+    var migrate = doc("v2SetStorageMigrate");
+    if (migrate) {
+      migrate.addEventListener("click", migrateStorage);
     }
   }
   /* ------------------------------------------------------------------- drawer */

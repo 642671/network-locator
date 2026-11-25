@@ -859,7 +859,24 @@
     "确认删除这个 MAC？": "Delete this saved MAC?",
     "MAC 后缀": "MAC suffix",
     "重复的 MAC 不能保存。": "Duplicate MAC entries cannot be saved.",
-    "还没有保存的 MAC。": "No saved MACs yet."
+    "还没有保存的 MAC。": "No saved MACs yet.",
+    "存储目录": "Storage directory",
+    "迁移数据": "Migrate data",
+    "迁移中…": "Migrating…",
+    "迁移完成：新数据库位于 ": "Migration complete. New database: ",
+    "存储迁移失败": "Storage migration failed",
+    "存储根目录：": "Storage root: ",
+    "迁移会复制设备档案与扫描历史，旧数据库保留作为回滚备份。": "Migration copies device profiles and scan history; the old database is kept as a rollback backup.",
+    "迁移会将设备档案与扫描历史复制到新目录，旧数据库保留作为回滚备份；迁移期间不能扫描。继续？": "Migration copies device profiles and scan history to the new directory and keeps the old database as a rollback backup. Scanning is blocked during migration. Continue?",
+    "请输入存储目录": "Enter a storage directory",
+    "存储目录必须位于应用数据根目录内；迁移会复制设备档案与扫描历史，旧数据库保留作为回滚备份。": "The storage directory must be inside the application data root; migration copies device profiles and scan history and keeps the old database as a rollback backup.",
+    "自动扫描由服务进程托管，关闭页面后仍会执行。": "Automatic scans run in the service process and continue after this page closes.",
+    "自动扫描由服务进程托管，当前已关闭。": "Automatic scans are managed by the service and are currently off.",
+    "下次自动扫描：": "Next automatic scan: ",
+    "下次自动扫描：等待首次运行": "Next automatic scan: waiting for the first run",
+    "上次自动扫描：": "Last automatic scan: ",
+    "最近错误：": "Last error: ",
+    "。": "."
   });
 
   var MESSAGE_RULES = [
@@ -898,7 +915,17 @@
     [/^设备清单扫描已在进行中$/, "A device inventory scan is already running"],
     [/^扫描结果 ([0-9A-Fa-f]+)$/, "Scan result $1"],
     [/^示例：目标范围不可达$/, "Example: the target range is unreachable"],
-    [/^一次最多查询 (\\d+) 个 MAC$/, "Look up at most $1 MAC addresses at a time"]
+    [/^一次最多查询 (\\d+) 个 MAC$/, "Look up at most $1 MAC addresses at a time"],
+    [/^默认网卡 (.+) 当前不可用，已自动选择所有网段$/, "Default interface $1 is unavailable; all networks were selected"],
+    [/^存储目录不能为空$/, "Storage directory cannot be empty"],
+    [/^存储目录必须是绝对路径$/, "Storage directory must be an absolute path"],
+    [/^存储目录必须位于应用数据目录 (.*) 内$/, "Storage directory must be inside the application data directory $1"],
+    [/^存储目录不可用：(.*)$/, "Storage directory is unavailable: $1"],
+    [/^无法创建存储目录：(.*)$/, "Could not create the storage directory: $1"],
+    [/^目标目录已存在数据库文件，请选择空目录或先备份$/, "The target directory already contains a database; choose an empty directory or back it up first"],
+    [/^目标目录不可写$/, "The target directory is not writable"],
+    [/^数据库迁移失败：(.*)$/, "Database migration failed: $1"],
+    [/^无法保存存储位置：(.*)$/, "Could not save the storage location: $1"]
   ];
 
   var locale = detectLocale();
@@ -946,6 +973,9 @@
 
   function translateMessage(text) {
     var value = String(text === undefined || text === null ? "" : text);
+    if (locale !== "en") {
+      return value;
+    }
     for (var index = 0; index < MESSAGE_RULES.length; index += 1) {
       var rule = MESSAGE_RULES[index];
       if (rule[0].test(value)) {
